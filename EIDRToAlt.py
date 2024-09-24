@@ -67,33 +67,26 @@ requestPagesize = 10
 AliasList = []  # List to store aliases
 DefaultQuery = "/FullMetadata/BaseObjectData/AlternateID 10/gttxdr"  # Default query
 
-def load_config_from_xml(config_file):
-    if not config_file:
-        raise ValueError("Config file path is None")
-
+def load_config_from_xml(file_path):
     try:
-        tree = ET.parse(config_file)
+        tree = ET.parse(file_path)
         root = tree.getroot()
 
-        # Extract the credentials and config elements from the XML
-        url = root.find('url')
-        pagesize = root.find('pagesize')
-        certpath = root.find('certpath')
-        keypath = root.find('keypath')
-
-        if None in (url, certpath, keypath):
-            raise ValueError("Missing one or more required elements (url, certpath, keypath) in the XML config")
-
-        # Return the configuration as a dictionary, overriding credentials with ShortDOI
-        return {
-            "URL": url.text,
-            "EIDR_PARTYID": SHORTDOI_PARTYID,
-            "EIDR_LOGIN": SHORTDOI_LOGIN,
-            "EIDR_PASSWORD": SHORTDOI_PASSWORD,
-            "PAGESIZE": pagesize.text if pagesize is not None else "100",
-            "CERT_PATH": certpath.text,
-            "KEY_PATH": keypath.text
+        # Extract values from XML, using .findtext() to ensure None is returned if the element is missing
+        config = {
+            "URL": root.findtext('url'),
+            "PartyID": root.findtext('party'),
+            "Login": root.findtext('user'),
+            "Password": root.findtext('password'),
+            "PageSize": root.findtext('pagesize'),
+            "CertPath": root.findtext('certpath'),
+            "KeyPath": root.findtext('keypath')
         }
+
+        # Optional: Print the parsed config for debugging
+        print(f"Parsed Config: {config}")
+        
+        return config
     except Exception as e:
         print(f"Failed to load configuration: {e}", file=sys.stderr)
         sys.exit(1)
@@ -140,13 +133,13 @@ def get_query_body(query, eidr_login, eidr_partyid, eidr_password, registry_key)
             raise ValueError("Request body is None")
         
         #r = requests.Request(url, headers=hdr, data=body)
-        print("Request data sent successfully")  # Debugging
+        #print("Request data sent successfully")  # Debugging
         QueryPageOffset += 1  # Advance page offset for next round
 
         # Make the actual request (you'll need to uncomment this line)
         # 9/17/24 changed to post to post the data was formerely get
         resp = requests.post(url, headers=hdr, data=body)
-        print(f"Response Status: {resp.status_code}")
+        #print(f"Response Status: {resp.status_code}")
         #print(f"Response Body: {resp.text}")
 
         #return resp.read()  # Return the response
@@ -234,9 +227,7 @@ def write_output_file(output_file=None):
             
                 line = f"{eidr_id}\t{id_type}\t{id_value}\t{id_domain}\t{id_relation}\n"
                 f.write(line)
-    else:
-        # If no output file is provided, do nothing (or print the output to the console)
-        print("No output file specified. Skipping writing to file.")
+
 
 def main():
  #   global DefaultQuery
@@ -264,13 +255,13 @@ def main():
     parser = argparse.ArgumentParser(description="Query EIDR and output alternate IDs")
 
     # Original arguments
-    parser.add_argument('-r', default=REGISTRY_KEY, dest="registry", help="Registry to query for party list")
+    #parser.add_argument('-r', default=REGISTRY_KEY, dest="registry", help="Need this for the command prompts")
     parser.add_argument('--version', action='store_true', help='Print current Tool/SDK version')
-    parser.add_argument('-oenc', '--oencoding', default='UTF-8', required=False, help='Set output file encoding to ENC. Defaults to UTF-8.')
-    parser.add_argument('--showconfig', action='store_true', help='Print current connection credentials')
+    #parser.add_argument('-oenc', '--oencoding', default='UTF-8', required=False, help='Set output file encoding to ENC. Defaults to UTF-8.')
+    parser.add_argument('--showconfig', action='store_true', help='Shows current connection credentials')
     
     # EIDR ID
-    parser.add_argument("--eidr_id", type=str, help="EIDR ID to query")
+    parser.add_argument("--eidr_id", type=str, help="Lets a user query a single EIDR ID")
 
     # Mutually exclusive group for domain and type
     group = parser.add_mutually_exclusive_group()
@@ -295,10 +286,28 @@ def main():
 
     args = parser.parse_args()
 
+    # Check if no arguments were provided other than the script name
+    if len(sys.argv) == 1:
+        print("No arguments provided. Displaying help options.")
+        parser.print_help()
+        sys.exit(1)
+
+    # Process the configuration file if provided
     if args.config:
         try:
             config = load_config_from_xml(args.config)
             print(f"Loaded config from file: {args.config}")
+            if config and args.showconfig:
+                print("Config loaded from XML file:")
+                print(f"URL: {config.get('URL')}")
+                print(f"Party ID: {config.get('PartyID')}")
+                print(f"Login: {config.get('Login')}")
+                print(f"Password: {config.get('password')}")
+                print(f"Page Size: {config.get('PageSize')}")
+                print(f"Cert Path: {config.get('CertPath')}")
+                print(f"Key Path: {config.get('KeyPath')}")
+                return  # Exit after showing the config
+
         except Exception as e:
             print(f"Error loading config: {e}")
             sys.exit(1)
@@ -313,35 +322,23 @@ def main():
             "CERT_PATH": None,
             "KEY_PATH": None
         }
-        print("Using default credentials.")
-
+        if args.showconfig:
+            print("Default configuration:")
+            print(f"URL: {config['URL']}")
+            print(f"Party ID: {config['EIDR_PARTYID']}")
+            print(f"Login: {config['EIDR_LOGIN']}")
+            return
     
-
-    if args.showconfig:
-        print("Current configuration:")
-        print(f"Registry Key: {REGISTRY_KEY}")
-        print(f"Short DOI Login: {SHORTDOI_LOGIN}")
-        print(f"Short DOI Party ID: {SHORTDOI_PARTYID}")
-        print(f"Short DOI Password: {SHORTDOI_PASSWORD}")
-        # one time call query other time call resolve
-        print(f"API URL: https://{REGISTRY_KEY}.eidr.org/EIDR/")
-        return  # Exit after showing config
-
-    # commented out for now on 9/19/24    
-  #  try:
-   #     response = query_registry_for_eidr_id(eidr_id)
-   #     print(f"Registry response: {response}")
-   # except Exception as e:
-   #     print(f"Error querying registry: {e}")
-
-    eidr_id = args.eidr_id
-    print(f"Processing EIDR ID: {eidr_id}")
-    
-    if args.debug:
-        print('Arguments: ' + str(args))
     if args.version:
         print(f"EIDR SDK Version: {SDK_VERSION}")
         sys.exit(0)
+
+    if args.eidr_id:
+        eidr_id = args.eidr_id
+        print(f"Processing EIDR ID: {eidr_id}")
+    else:
+        print("No EIDR ID provided. Use --eidr_id to specify an ID.")
+    
     if args.input:
         try:
             with open(args.input, 'r', encoding='utf-8') as f:
@@ -349,30 +346,17 @@ def main():
             print(f"Loaded {len(eidr_ids)} EIDR IDs from input file.")
         except FileNotFoundError:
             print(f"Input file {args.input} not found.")
-        exit(1)
+            sys.exit(1)
     else:
         print("No input file specified.")
 
-   
-    REGISTRY_KEY = args.registry
-    requestPagesize = args.pagesize
-    verbose = args.verbose
-    debug = args.debug
-    opLog = args.opLog
-    file = args.file
-    showCount = args.showcount
-    maxCount = args.maxCount
-    maxErrors = args.maxErrors
-    if debug:
-        verbose = True                          # If debugging, include "verbose" messages
-    if args.registry != '':
-        REGISTRY_KEY = args.registry
+    if args.output:
+        print(f"Writing to output file: {args.output}")
+    else:
+        print("No output file specified. Skipping writing to file.")
 
-    # If a query was specified, use it instead of the default query
-    #if args.query != '':
-    #    query = args.query
-    #else:
-    #    query = DefaultQuery
+    if args.debug:
+        print('Arguments: ' + str(args))
 
     # Create the query XML, including EIDR-ID only if provided
     query = f"""
@@ -385,31 +369,9 @@ def main():
         </criteria>
     </query>
     """
-    API_URL = 'https://sandbox1.eidr.org/EIDR/query/?type=ID'
-     # Use DefaultQuery and credentials
-    query = DefaultQuery
-    eidr_login = SHORTDOI_LOGIN
-    eidr_partyid = SHORTDOI_PARTYID
-    eidr_password = SHORTDOI_PASSWORD
-    registry_key = REGISTRY_KEY
-
-    s = get_query_body(query,eidr_login,eidr_partyid,eidr_password,registry_key)
-
-    #print(s.status_code)
-    #print(s.headers)
-    #print(s.text)
-    #print(s.content)
-    # execute the query.
-    #response= requests.get(API_URL)
-    #print(response.text)
-    #print(response.headers)
-    #print("Content:", response.content)  # To get the response as JSON
-
-    
-
-
 
     # Fill ID list
+    # May need in the future when wanting to add multiple IDs
     if args.eidr_id != '':
         IDList.append(args.eidr_id)      # If an EIDR ID was specified, add it to the list
         query = ''                      # If an EIDR ID was specified, ignore the query
@@ -424,17 +386,6 @@ def main():
         except Exception as e:
             print(f'Error loading ID file {file}: {e}')
             exit(1)
-    # Load configuration
-    # will need to replace when using actual user config file
-     # Update credentials and API settings from config if needed
-     
-    
-    if 1 != 1:
-        config = load_config_from_xml(args.config)
-        SHORTDOI_LOGIN = config["EIDR_LOGIN"]
-        SHORTDOI_PARTYID = config["EIDR_PARTYID"]
-        SHORTDOI_PASSWORD = config["EIDR_PASSWORD"]
-        REGISTRY_KEY = config["URL"].split('/')[2]  # Extract registry key from URL
 
     # Fetch and write data
    # get_more_ids()
