@@ -62,10 +62,24 @@ VALID_ID_TYPES = [
     "ShortDOI", "SMPTE_UMID", "TRIB", "TVG", "UPC", "URI", "URN", "UUID",
 ]
 
+class CustomHelpFormatter(argparse.HelpFormatter):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+
+        def _format_action(self, action):
+        # Get the default formatted action
+            action_str = super()._format_action(action)
+
+        # Add horizontal spacing using a delimiter (number of spaces)
+        # For example, using 5 spaces as the delimiter
+            delimiter = ' ' * 50  # 5 spaces
+            if action.help:
+                action_str = action_str.replace(action.help, f'{delimiter}{action.help}')
+
+            return action_str
 #used to load values from a config file
 
 def load_config_from_xml(file_path):
-    try:
         tree = ET.parse(file_path)
         root = tree.getroot()
 
@@ -81,9 +95,7 @@ def load_config_from_xml(file_path):
         }
 
         return config
-    except Exception as e:
-        print(f"Failed to load configuration: {e}", file=sys.stderr)
-        sys.exit(1)
+
 
 # Add debugging before the request
 def get_query_body(query, eidr_login, eidr_partyid, eidr_password, registry_key):
@@ -178,9 +190,8 @@ def query_registry_for_eidr_id(eidr_id):
 def write_output_file(output_file=None):
     if output_file:
         with open(output_file, 'w') as f:
-            for alias in AliasList:
-                eidr_id = alias['alias_from']
-                id_value = alias['alias_to']
+                eidr_id = ""
+                id_value = ""
                 id_type = ""  # Assuming all are proprietary; adjust as needed
                 id_domain = ""  # Placeholder; adjust based on actual data if applicable
                 id_relation = ''  # Placeholder; adjust as needed
@@ -199,9 +210,6 @@ def setup_logging(logfile):
     )
     
     # Also log to the console
- 
-    
-
 # displays help messages via a function.
 def get_help_message(keyword):
     messages = {
@@ -225,7 +233,7 @@ def get_help_message(keyword):
     return messages.get(keyword, "No help message available")
 
 def main():
-    global EIDRTOALTID_LOGIN, EIDRTOALTID_PARTYID, EIDRTOALTID_PASSWORD, REGISTRY_KEY, requestPagesize
+    global EIDRTOALTID_LOGIN, EIDRTOALTID_PARTYID, EIDRTOALTID_PASSWORD, REGISTRY_KEY, requestPagesize,IDList
     global eidr_id, alt_id_domain, alt_id_type, alt_id_relation
 
     SDK_VERSION = '2.7.0'
@@ -235,21 +243,6 @@ def main():
     alt_id_relation = ' '
     REGISTRY_KEY = 'sandbox1'
 
-    class CustomHelpFormatter(argparse.HelpFormatter):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-
-        def _format_action(self, action):
-        # Get the default formatted action
-            action_str = super()._format_action(action)
-
-        # Add horizontal spacing using a delimiter (number of spaces)
-        # For example, using 5 spaces as the delimiter
-            delimiter = ' ' * 50  # 5 spaces
-            if action.help:
-                action_str = action_str.replace(action.help, f'{delimiter}{action.help}')
-
-            return action_str
 
     # Create parser and set the custom formatter with adjustable spacing
     parser = argparse.ArgumentParser(formatter_class=CustomHelpFormatter)
@@ -307,6 +300,10 @@ def main():
                 print(f"Party ID: {config['EIDR_PARTYID']}")
                 print(f"Login: {config['EIDR_LOGIN']}")
                 return
+    except Exception as e:
+        print(f"Failed to load configuration: {e}", file=sys.stderr)  # Print the error
+        parser.print_help()  # Display the help menu
+        sys.exit(1) 
 
     except RuntimeError as e:
         print(e)  # Display the error message
@@ -362,18 +359,6 @@ def main():
     # May need in the future when wanting to add multiple IDs
     if args.eidr_id != '':
         IDList.append(args.eidr_id)      # If an EIDR ID was specified, add it to the list
-        query = ''                      # If an EIDR ID was specified, ignore the query
-    if args.file != '':
-        try:
-            query = ''                  # If a file was specified, ignore the query
-            text_file = open(file, "r")
-            IDList = text_file.readlines()
-            for i in range(0, len(IDList)):
-                IDList[i] = IDList[i].strip(' \t\n')
-            text_file.close()
-        except Exception as e:
-            print(f'Error loading ID file {file}: {e}')
-            exit(1)
 
     # Fetch and write data
    # get_more_ids()
