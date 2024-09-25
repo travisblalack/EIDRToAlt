@@ -1,6 +1,7 @@
 import sys
 import base64
 import argparse
+import logging
 import xml.etree.ElementTree as ET
 import hashlib
 import uuid
@@ -62,10 +63,13 @@ VALID_ID_TYPES = [
 ]
 
 # Global variables for paging
+# May need to run queries later on
 QueryPageOffset = 1
 requestPagesize = 10
 AliasList = []  # List to store aliases
 DefaultQuery = "/FullMetadata/BaseObjectData/AlternateID 10/gttxdr"  # Default query
+
+#used to load values from a config file
 
 def load_config_from_xml(file_path):
     try:
@@ -147,44 +151,13 @@ def get_query_body(query, eidr_login, eidr_partyid, eidr_password, registry_key)
         print(f'Error in request: {e}', file=sys.stderr)
         raise
 
-def get_more_ids():
-    global AliasList
-    global QueryPageOffset
-
-    cnt = 0
-    
-    # Use DefaultQuery and credentials
-    query = DefaultQuery
-    eidr_login = SHORTDOI_LOGIN
-    eidr_partyid = SHORTDOI_PARTYID
-    eidr_password = SHORTDOI_PASSWORD
-    registry_key = REGISTRY_KEY
-
-    s = get_query_body(query,eidr_login,eidr_partyid,eidr_password,registry_key).decode('utf-8')
-    doc = minidom.parseString(s)
-    results = doc.getElementsByTagName('QueryResults')
-    print(results)  # debug
-    if len(results)==0:
-        print("Nothing found")
-        return
-    for elem in results.item(0).getElementsByTagName('SimpleMetadata'):
-        alias_from = ''
-        alias_to = ''
-        for node in elem.childNodes:
-            if node.nodeType == node.ELEMENT_NODE:
-                if node.tagName == 'ID':
-                    alias_from = node.firstChild.nodeValue
-                if node.tagName == 'ResourceName':
-                    alias_to = node.firstChild.nodeValue
-        if alias_from and alias_to:
-            AliasList.append(aliasRec(alias_from, alias_to))
-            cnt += 1
-    return cnt
+#May need to query registry
 def query_registry_for_eidr_id(eidr_id):
     global SHORTDOI_LOGIN, SHORTDOI_PARTYID, SHORTDOI_PASSWORD, REGISTRY_KEY
     
     if not eidr_id:
         raise ValueError("EIDR ID is required")
+    
 
     query = f"/FullMetadata/BaseObjectData/AlternateID[@type='ShortDOI']/@value='{eidr_id}'"
 
@@ -214,7 +187,7 @@ def query_registry_for_eidr_id(eidr_id):
     except Exception as e:
         print(f"Error querying registry: {e}")
         return None
-
+#used to write output to a file, not working as of 9/24/24
 def write_output_file(output_file=None):
     if output_file:
         with open(output_file, 'w') as f:
@@ -227,6 +200,43 @@ def write_output_file(output_file=None):
             
                 line = f"{eidr_id}\t{id_type}\t{id_value}\t{id_domain}\t{id_relation}\n"
                 f.write(line)
+def setup_logging(logfile):
+    """
+    Set up logging configuration. Log to the specified file.
+    """
+    logging.basicConfig(
+        filename=logfile,          # Log file specified by opLog
+        filemode='a',              # Append to the log file
+        level=logging.INFO,        # Log level (INFO)
+        format='%(asctime)s - %(levelname)s - %(message)s'
+    )
+    
+    # Also log to the console
+ 
+    
+
+# displays help messages via a function.
+def get_help_message(keyword):
+    messages = {
+        'version': 'Print current Tool/SDK version',
+        'showconfig': 'Shows current connection credentials',
+        'eidr_id': 'Lets a user query a single EIDR ID',
+        'domain': 'AltIDs must be in DOMAIN (exclusive with --type)',
+        'type': 'AltIDs must be in TYPE (exclusive with --domain)',
+        'output': 'Path to the output file',
+        'config': 'Path to the XML configuration file',
+        'pagesize': 'Number of records to retrieve per round',
+        'verbose': 'Display progress and status reporting',
+        'showcount': 'Show counts of records processed',
+        'maxCount': 'Number of threads to use',
+        'maxErrors': 'Maximum number of errors to tolerate before aborting',
+        'file': 'File from which to load IDs',
+        'query': 'XPath query to select IDs',
+        'input': 'Path to the input file containing EIDR IDs or other data',
+        'logfile': 'Log file for operation history'
+    }
+    return messages.get(keyword, "No help message available")
+
 
 
 def main():
@@ -237,7 +247,6 @@ def main():
     global verbose
     global debug
     global file
-    global showCount
     global opLog
     global query
     global IDList
@@ -252,39 +261,31 @@ def main():
     alt_id_relation=' '
     REGISTRY_KEY = 'sandbox1'
 
-    parser = argparse.ArgumentParser(description="Query EIDR and output alternate IDs")
+    parser = argparse.ArgumentParser()
 
     # Original arguments
-    #parser.add_argument('-r', default=REGISTRY_KEY, dest="registry", help="Need this for the command prompts")
-    parser.add_argument('--version', action='store_true', help='Print current Tool/SDK version')
-    #parser.add_argument('-oenc', '--oencoding', default='UTF-8', required=False, help='Set output file encoding to ENC. Defaults to UTF-8.')
-    parser.add_argument('--showconfig', action='store_true', help='Shows current connection credentials')
-    
-    # EIDR ID
-    parser.add_argument("--eidr_id", type=str, help="Lets a user query a single EIDR ID")
+    parser.add_argument('--version', action='store_true', help=get_help_message('version'))
+    parser.add_argument('--showconfig', action='store_true', help=get_help_message('showconfig'))
 
     # Mutually exclusive group for domain and type
     group = parser.add_mutually_exclusive_group()
-    group.add_argument('-dom', '--domain', required=False, help='AltIDs must be in DOMAIN (exclusive with --type)')
-    group.add_argument('-t', '--type', required=False, help='AltIDs must be in TYPE (exclusive with --domain)')
+    parser.add_argument('-dom', '--domain', required=False, help=get_help_message('domain'))
+    parser.add_argument('-t', '--type', required=False, help=get_help_message('type'))
+    group.add_argument('--eidr_id', type=str, help=get_help_message('eidr_id'))
+    group.add_argument('-i', '--input', required=False, help=get_help_message('input'))
+    parser.add_argument('-o', '--output', required=False, help=get_help_message('output'))
 
-    # Output file and config file arguments
-    parser.add_argument('-o', '--output', required=False, help='Path to the output file')
-    parser.add_argument('-c', '--config', required=False, help='Path to the XML configuration file')
-
-    # Other optional arguments
-    parser.add_argument('-p', type=int, default=requestPagesize, dest="pagesize", help="Number of records to retrieve per round")
-    parser.add_argument('-v', '--verbose', action="store_true", default=False, dest="verbose", help="Display progress and status reporting")
-    parser.add_argument('-d', '--debug', action="store_true", dest="debug", default=False, help="Show debugging information")
-    parser.add_argument('--count', action="store_true", dest="showcount", default=False, help="Show counts of records processed")
-    parser.add_argument('-m', '--max', type=int, default=maxCount, dest="maxCount", help="Number of threads to use")
-    parser.add_argument('-x', '--maxerrs', type=int, default=maxErrors, dest="maxErrors", help="Maximum number of errors to tolerate before aborting")
-    parser.add_argument('-f', '--file', default='', dest="file", help="File from which to load IDs")
-    parser.add_argument('-q', '--query', default='', dest="query", help="XPath query to select IDs")
-    parser.add_argument('-i', '--input', required=False, help='Path to the input file containing EIDR IDs or other data')
-    parser.add_argument('-l', '--logfile', dest="opLog", default=opLog, help="Log file for operation history")
+    parser.add_argument('-c', '--config', required=False, help=get_help_message('config'))
+    parser.add_argument('-p', type=int, default=100, dest="pagesize", help=get_help_message('pagesize'))
+    parser.add_argument('-v', '--verbose', action="store_true", default=False, dest="verbose", help=get_help_message('verbose'))
+    parser.add_argument('--count', type=int, dest="showcount", help=get_help_message('showcount'))
+    parser.add_argument('-x', '--maxerrs', type=int, default=5, dest="maxErrors", help=get_help_message('maxErrors'))
+    parser.add_argument('-f', '--file', default='', dest="file", help=get_help_message('file'))
+    parser.add_argument('-l', '--logfile', dest="opLog", default=opLog, help=get_help_message('logfile'))
 
     args = parser.parse_args()
+
+    
 
     # Check if no arguments were provided other than the script name
     if len(sys.argv) == 1:
@@ -310,9 +311,10 @@ def main():
 
         except Exception as e:
             print(f"Error loading config: {e}")
+            parser.print_help()
             sys.exit(1)
     else:
-        # Use default credentials
+        # Use default credentials if no config was defined.
         config = {
             "URL": f"https://{REGISTRY_KEY}.eidr.org/EIDR/query/?type=ID",
             "EIDR_PARTYID": SHORTDOI_PARTYID,
@@ -322,6 +324,7 @@ def main():
             "CERT_PATH": None,
             "KEY_PATH": None
         }
+        #shows if a user provides a config file
         if args.showconfig:
             print("Default configuration:")
             print(f"URL: {config['URL']}")
@@ -346,17 +349,20 @@ def main():
             print(f"Loaded {len(eidr_ids)} EIDR IDs from input file.")
         except FileNotFoundError:
             print(f"Input file {args.input} not found.")
+            parser.print_help()
             sys.exit(1)
     else:
         print("No input file specified.")
-
     if args.output:
         print(f"Writing to output file: {args.output}")
     else:
         print("No output file specified. Skipping writing to file.")
-
-    if args.debug:
-        print('Arguments: ' + str(args))
+    if args.opLog:
+        setup_logging(args.opLog)
+        logging.info(f"Logging initialized. Log file: {args.opLog}")
+        logging.info(f"Arguments after parsing: {vars(args)}")
+    else:
+        print("No logfile specified. Logging is disabled.")
 
     # Create the query XML, including EIDR-ID only if provided
     query = f"""
