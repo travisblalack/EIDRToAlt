@@ -32,14 +32,14 @@ EIDRTOALTID_LOGIN = '10.5238/tblalack'
 EIDRTOALTID_PARTYID = '10.5237/FFDA-9947'
 EIDRTOALTID_PASSWORD = 'tNy!LEX~jBxk'
 
-API_URL = 'https://{REGISTRY_KEY}.eidr.org/EIDR/query/?type=ID'
-API_RESOLVE_URL = 'https://{REGISTRY_KEY}.eidr.org/EIDR/resolve/?type=ID'
+API_URL = 'https://{REGISTRY_KEY}.eidr.org/EIDR/query/'
+API_RESOLVE_URL = 'https://{REGISTRY_KEY}.eidr.org/EIDR/resolve/'
 #API_URL = 'https://sandbox1.eidr.org/EIDR/query/?type=ID'
 
 verbose = False                     # If TRUE, send progress messages to the console
 debug = False                       # If TRUE, send diagnostic data to the console
 showCount = True                    # If TRUE, show show counts of records processed / errors while running
-requestPagesize = 1000              # Number of records to retrieve per round
+requestPagesize = 100              # Number of records to retrieve per round
 QueryPageOffset = 1                 # Page offset for repeated query rounds
 opLog = 'EIDRToAlt.oplog'            # Operation log filename.   Set to '' to suppress
 maxErrors = 0                       # If non-zero, abort after this many errors
@@ -72,7 +72,7 @@ class CustomHelpFormatter(argparse.HelpFormatter):
 
         # Add horizontal spacing using a delimiter (number of spaces)
         # For example, using 5 spaces as the delimiter
-            delimiter = ' ' * 50  # 5 spaces
+            delimiter = ' ' * 25  # 5 spaces
             if action.help:
                 action_str = action_str.replace(action.help, f'{delimiter}{action.help}')
 
@@ -89,9 +89,7 @@ def load_config_from_xml(file_path):
             "PartyID": root.findtext('party'),
             "Login": root.findtext('user'),
             "Password": root.findtext('password'),
-            "PageSize": root.findtext('pagesize'),
-            "CertPath": root.findtext('certpath'),
-            "KeyPath": root.findtext('keypath')
+            "Pagesize": root.findtext('pagesize'),
         }
 
         return config
@@ -213,6 +211,7 @@ def setup_logging(logfile):
 # displays help messages via a function.
 def get_help_message(keyword):
     messages = {
+        'help': 'Show this help message and exit',
         'version': 'Print current Tool/SDK version',
         'showconfig': 'Shows current connection credentials',
         'eidr_id': 'Lets a user query a single EIDR ID',
@@ -233,7 +232,7 @@ def get_help_message(keyword):
     return messages.get(keyword, "No help message available")
 
 def main():
-    global EIDRTOALTID_LOGIN, EIDRTOALTID_PARTYID, EIDRTOALTID_PASSWORD, REGISTRY_KEY, requestPagesize,IDList
+    global EIDRTOALTID_LOGIN, EIDRTOALTID_PARTYID, EIDRTOALTID_PASSWORD, REGISTRY_KEY, requestPagesize, IDList
     global eidr_id, alt_id_domain, alt_id_type, alt_id_relation
 
     SDK_VERSION = '2.7.0'
@@ -242,106 +241,119 @@ def main():
     alt_id_type = ' '
     alt_id_relation = ' '
     REGISTRY_KEY = 'sandbox1'
-
+    requestPagesize = 100
 
     # Create parser and set the custom formatter with adjustable spacing
-    parser = argparse.ArgumentParser(formatter_class=CustomHelpFormatter)
+    parser = argparse.ArgumentParser(formatter_class=CustomHelpFormatter, add_help=False)
+    parser.add_argument('-h', '--help', action='help', help=get_help_message('help'))
     parser.add_argument('--version', action='store_true', help=get_help_message('version'))
     parser.add_argument('--showconfig', action='store_true', help=get_help_message('showconfig'))
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument('-dom', '--domain', required=False, help=get_help_message('domain'))
     group.add_argument('-t', '--type', required=False, help=get_help_message('type'))
-    group.add_argument('--eidr_id','-id', type=str, help=get_help_message('eidr_id'))
+    parser.add_argument('-id', '--eidr_id', type=str, help=get_help_message('eidr_id'))
     group.add_argument('-i', '--input', required=False, help=get_help_message('input'))
     parser.add_argument('-o', '--output', required=False, help=get_help_message('output'))
 
     parser.add_argument('-c', '--config', required=False, help=get_help_message('config'))
     parser.add_argument('-p', type=int, default=100, dest="pagesize", help=get_help_message('pagesize'))
     parser.add_argument('-v', '--verbose', action="store_true", default=False, dest="verbose", help=get_help_message('verbose'))
-    parser.add_argument('--count', type=int, dest="showcount", help=get_help_message('showcount'))
-    parser.add_argument('-x', '--maxerrs', type=int, default=5, dest="maxErrors", help=get_help_message('maxErrors'))
+    parser.add_argument('--count', type=int, dest="maxCount", help=get_help_message('showcount'))
+    parser.add_argument('-x', '--maxerrs', type=int, default=10, dest="maxErrors", help=get_help_message('maxErrors'))
     parser.add_argument('-l', '--logfile', default=None, dest="opLog", help=get_help_message('logfile'))
 
     args = parser.parse_args()
 
+    # Check if --version is provided, and print it before doing anything else
+    if args.version:
+        print(f"EIDR SDK Version: {SDK_VERSION}")
+        sys.exit(1)
+
     if len(sys.argv) == 1:
         print("No arguments provided. Displaying help options.")
+        parser.print_help()
+        sys.exit(1)
+    if args.eidr_id and not (args.type or args.domain):
+        print("Error: When providing an EIDR ID, you must also provide either a type (--type) or a domain (--domain).")
         parser.print_help()
         sys.exit(1)
 
     try:
         if args.config:
             config = load_config_from_xml(args.config)
-            print(f"Loaded config from file: {args.config}")
+            if args.verbose:
+                print(f"Loaded config from file: {args.config}")
             if config and args.showconfig:
                 print("Config loaded from XML file:")
                 print(f"URL: {config.get('URL')}")
                 print(f"Party ID: {config.get('PartyID')}")
                 print(f"Login: {config.get('Login')}")
-                print(f"Password: {config.get('password')}")
-                print(f"Page Size: {config.get('PageSize')}")
-                print(f"Cert Path: {config.get('CertPath')}")
-                print(f"Key Path: {config.get('KeyPath')}")
+                print(f"Page Size: {config.get('Pagesize', requestPagesize)}")  # Display loaded page size
                 return
         else:
             config = {
-                "URL": f"https://{REGISTRY_KEY}.eidr.org/EIDR/query/?type=ID",
+                "URL": f"https://{REGISTRY_KEY}.eidr.org/EIDR",
                 "EIDR_PARTYID": EIDRTOALTID_PARTYID,
                 "EIDR_LOGIN": EIDRTOALTID_LOGIN,
                 "EIDR_PASSWORD": EIDRTOALTID_PASSWORD,
                 "PAGESIZE": requestPagesize,
-                "CERT_PATH": None,
-                "KEY_PATH": None
             }
             if args.showconfig:
                 print("Default configuration:")
                 print(f"URL: {config['URL']}")
                 print(f"Party ID: {config['EIDR_PARTYID']}")
                 print(f"Login: {config['EIDR_LOGIN']}")
+                print(f"Page Size: {config['PAGESIZE']}")
                 return
     except Exception as e:
-        print(f"Failed to load configuration: {e}", file=sys.stderr)  # Print the error
-        parser.print_help()  # Display the help menu
-        sys.exit(1) 
-
-    except RuntimeError as e:
-        print(e)  # Display the error message
-        parser.print_help()  # Display the help message
+        print(f"Failed to load configuration: {e}", file=sys.stderr)
+        parser.print_help()
         sys.exit(1)
 
-    if args.version:
-        print(f"EIDR SDK Version: {SDK_VERSION}")
-        sys.exit(0)
+    # Check if -p was provided and print the page size only if -p is used
+    if args.pagesize:
+        print(f"Page size set to: {requestPagesize}")
+    # Check if both --showconfig and -p were provided
+    if args.showconfig and 'pagesize' in args:
+        print("Configuration with custom page size:")
+        print(f"Page size: {config['pagesize']}")
+        print(f"URL: {config['URL']}")
+        print(f"Party ID: {config['EIDR_PARTYID']}")
+        print(f"Login: {config['EIDR_LOGIN']}")
+        return
 
     if args.eidr_id:
         eidr_id = args.eidr_id
         print(f"Processing EIDR ID: {eidr_id}")
-    else:
-        print("No EIDR ID provided. Use --eidr_id or -id to specify an ID.")
-
-    
-    if args.input:
+    elif args.input:
         try:
             with open(args.input, 'r', encoding='utf-8') as f:
-                eidr_ids = f.read().splitlines()  # Assuming each line contains one EIDR ID
+                eidr_ids = f.read().splitlines()
             print(f"Loaded {len(eidr_ids)} EIDR IDs from input file.")
         except FileNotFoundError:
             print(f"Input file {args.input} not found.")
             parser.print_help()
             sys.exit(1)
     else:
-        print("No input file specified.")
+        # No EIDR ID or input file provided, run default query
+        print("No EIDR ID or input file provided. Running default query.")
+
     if args.output:
         print(f"Writing to output file: {args.output}")
-    else:
-        print("No output file specified. Skipping writing to file.")
+
     if args.opLog:
         setup_logging(args.opLog)
         logging.info(f"Logging initialized. Log file: {args.opLog}")
         logging.info(f"Arguments after parsing: {vars(args)}")
-    else:
-        print("No logfile specified. Logging is disabled.")
+
+    # limits
+    if args.maxErrors != 10:
+        print(f"Max errors allowed: {args.maxErrors}")
+
+    # Fix for count argument: Access args.maxCount instead of args.count
+    if args.maxCount:
+        print(f"Count provided: Processing {args.maxCount} EIDR records.")
 
     # Create the query XML, including EIDR-ID only if provided
     query = f"""
@@ -351,17 +363,16 @@ def main():
             <IDType>{alt_id_type}</IDType>
             {'<Domain>{alt_id_domain}</Domain>' if alt_id_domain else ''}
             {'<Relation>{alt_id_relation}</Relation>' if alt_id_relation else ''}
+            <PageSize>{requestPagesize}</PageSize>
         </criteria>
     </query>
     """
 
     # Fill ID list
-    # May need in the future when wanting to add multiple IDs
     if args.eidr_id != '':
-        IDList.append(args.eidr_id)      # If an EIDR ID was specified, add it to the list
+        IDList.append(args.eidr_id)
 
     # Fetch and write data
-   # get_more_ids()
     write_output_file(args.output)
 
 if __name__ == "__main__":
