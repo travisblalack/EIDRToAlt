@@ -33,7 +33,7 @@ EIDRTOALTID_PARTYID = '10.5237/FFDA-9947'
 EIDRTOALTID_PASSWORD = 'tNy!LEX~jBxk'
 
 API_URL = 'https://{REGISTRY_KEY}.eidr.org/EIDR/query/'
-API_RESOLVE_URL = 'https://{REGISTRY_KEY}.eidr.org/EIDR/resolve/'
+API_RESOLVE_URL = 'https://resolve.eidr.org/EIDR/resolve/10.5240/ABFA-93F8-26D0-6D78-C1F7-O?type=AlternateID' # default is sandbox but using resolve
 #API_URL = 'https://sandbox1.eidr.org/EIDR/query/?type=ID'
 
 verbose = False                     # If TRUE, send progress messages to the console
@@ -93,7 +93,28 @@ def load_config_from_xml(file_path):
         }
 
         return config
+def get_eidr_xml(eidr_id):
+    API_URL = f'https://resolve.eidr.org/EIDR/resolve/10.5240/ABFA-93F8-26D0-6D78-C1F7-O?type=AlternateID'
+    
+    try:
+        # Make the HTTP request
+        response = requests.get(API_URL)
+        
+        if response.status_code == 200:
+            # Parse the response into XML
+            xml_data = response.content
 
+            # Pretty print the XML data using minidom
+            xml_parsed = minidom.parseString(xml_data)
+            pretty_xml = xml_parsed.toprettyxml(indent="  ")
+            
+            # Return the pretty XML
+            return pretty_xml
+        else:
+            raise Exception(f"Failed to retrieve data: {response.status_code} - {response.text}")
+    except Exception as e:
+        print(f"Error: {e}")
+        return None
 
 # Add debugging before the request
 def get_query_body(query, eidr_login, eidr_partyid, eidr_password, registry_key):
@@ -206,7 +227,26 @@ def setup_logging(logfile):
         level=logging.INFO,        # Log level (INFO)
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
-    
+def fetch_xml(eidr_id):
+    try:
+        # Construct the EIDR URL using the provided ID
+        url = f"https://resolve.eidr.org/EIDR/object/{eidr_id}"
+        
+        # Make a request to fetch the XML data
+        response = requests.get(url)
+        
+        # Check if the request was successful
+        if response.status_code == 200:
+            # Parse the XML content
+            xml_data = response.text
+            print(f"Successfully fetched XML for {eidr_id}")
+            return xml_data
+        else:
+            print(f"Failed to fetch XML for {eidr_id}, Status Code: {response.status_code}")
+            return None
+    except requests.exceptions.RequestException as e:
+        print(f"An error occurred while fetching XML: {e}")
+        return None
     # Also log to the console
 # displays help messages via a function.
 def get_help_message(keyword):
@@ -265,7 +305,6 @@ def main():
 
     args = parser.parse_args()
 
-    # Check if --version is provided, and print it before doing anything else
     if args.version:
         print(f"EIDR SDK Version: {SDK_VERSION}")
         sys.exit(1)
@@ -289,11 +328,11 @@ def main():
                 print(f"URL: {config.get('URL')}")
                 print(f"Party ID: {config.get('PartyID')}")
                 print(f"Login: {config.get('Login')}")
-                print(f"Page Size: {config.get('Pagesize', requestPagesize)}")  # Display loaded page size
+                print(f"Page Size: {config.get('Pagesize', requestPagesize)}")
                 return
         else:
             config = {
-                "URL": f"https://{REGISTRY_KEY}.eidr.org/EIDR",
+                "URL": f"https://resolve.eidr.org/EIDR", # changed to resolve as of 10/1/24
                 "EIDR_PARTYID": EIDRTOALTID_PARTYID,
                 "EIDR_LOGIN": EIDRTOALTID_LOGIN,
                 "EIDR_PASSWORD": EIDRTOALTID_PASSWORD,
@@ -311,10 +350,9 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    # Check if -p was provided and print the page size only if -p is used
     if args.pagesize:
         print(f"Page size set to: {requestPagesize}")
-    # Check if both --showconfig and -p were provided
+
     if args.showconfig and 'pagesize' in args:
         print("Configuration with custom page size:")
         print(f"Page size: {config['pagesize']}")
@@ -323,20 +361,38 @@ def main():
         print(f"Login: {config['EIDR_LOGIN']}")
         return
 
+    # Fetch the XML for the given EIDR ID
     if args.eidr_id:
         eidr_id = args.eidr_id
         print(f"Processing EIDR ID: {eidr_id}")
+
+        # Fetch the XML record using the fetch_xml function
+        xml_record = fetch_xml(eidr_id)
+
+        # Output the XML record or save it to a file if output is provided
+        if args.output:
+            with open(args.output, 'w', encoding='utf-8') as f:
+                f.write(xml_record)
+            print(f"XML record saved to {args.output}")
+        else:
+            print(f"XML Record for EIDR ID {eidr_id}:\n{xml_record}")
+
     elif args.input:
         try:
             with open(args.input, 'r', encoding='utf-8') as f:
                 eidr_ids = f.read().splitlines()
             print(f"Loaded {len(eidr_ids)} EIDR IDs from input file.")
+            
+            for eidr_id in eidr_ids:
+                print(f"Processing EIDR ID: {eidr_id}")
+                xml_record = fetch_xml(eidr_id)
+                print(f"XML Record for EIDR ID {eidr_id}:\n{xml_record}")
+                
         except FileNotFoundError:
             print(f"Input file {args.input} not found.")
             parser.print_help()
             sys.exit(1)
     else:
-        # No EIDR ID or input file provided, run default query
         print("No EIDR ID or input file provided. Running default query.")
 
     if args.output:
@@ -347,11 +403,9 @@ def main():
         logging.info(f"Logging initialized. Log file: {args.opLog}")
         logging.info(f"Arguments after parsing: {vars(args)}")
 
-    # limits
     if args.maxErrors != 10:
         print(f"Max errors allowed: {args.maxErrors}")
 
-    # Fix for count argument: Access args.maxCount instead of args.count
     if args.maxCount:
         print(f"Count provided: Processing {args.maxCount} EIDR records.")
 
