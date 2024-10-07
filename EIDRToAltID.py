@@ -6,6 +6,7 @@ import xml.etree.ElementTree as ET
 import hashlib
 import uuid
 import requests
+import locale
 from urllib import request          # For making HTTP requests
 import ssl
 from xml.dom import minidom
@@ -27,14 +28,12 @@ global maxErrors
 
 
 # EIDRTOALTID credentials
-REGISTRY_KEY = 'sandbox1'
+REGISTRY_KEY = 'resolve'
 EIDRTOALTID_LOGIN = '10.5238/tblalack'
 EIDRTOALTID_PARTYID = '10.5237/FFDA-9947'
 EIDRTOALTID_PASSWORD = 'tNy!LEX~jBxk'
 
-API_URL = 'https://{REGISTRY_KEY}.eidr.org/EIDR/query/'
-API_RESOLVE_URL = 'https://resolve.eidr.org/EIDR/resolve/10.5240/ABFA-93F8-26D0-6D78-C1F7-O?type=AlternateID' # default is sandbox but using resolve
-#API_URL = 'https://sandbox1.eidr.org/EIDR/query/?type=ID'
+API_URL = 'https://{REGISTRY_KEY}.eidr.org/EIDR/'
 
 verbose = False                     # If TRUE, send progress messages to the console
 debug = False                       # If TRUE, send diagnostic data to the console
@@ -94,7 +93,7 @@ def load_config_from_xml(file_path):
 
         return config
 def get_eidr_xml(eidr_id):
-    API_URL = f'https://resolve.eidr.org/EIDR/resolve/10.5240/ABFA-93F8-26D0-6D78-C1F7-O?type=AlternateID'
+    API_URL = f'https://resolve.eidr.org/EIDR/object/resolve/{eidr_id}?type=AlternateID'
     
     try:
         # Make the HTTP request
@@ -186,7 +185,6 @@ def query_registry_for_eidr_id(eidr_id):
         
         # Parse the XML response
         response_text = response.text
-        doc = minidom.parseString(response_text)
         results = doc.getElementsByTagName('SimpleMetadata')
         
         if len(results) == 0:
@@ -227,25 +225,72 @@ def setup_logging(logfile):
         level=logging.INFO,        # Log level (INFO)
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
+locale.setlocale(locale.LC_ALL, '')
+
+def makeHeader():
+    try:
+        # Generate the hashed password and base64-encoded value
+        pwBytes = bytes(EIDRTOALTID_PASSWORD, 'utf-8')
+        hash = hashlib.md5(pwBytes)  # Change to MD5 as per request
+        pwShadow = base64.b64encode(hash.digest())
+        
+        # Create the authorization string
+        authStr = f'Eidr {EIDRTOALTID_LOGIN}:{EIDRTOALTID_PARTYID}:{pwShadow.decode("utf-8")}'
+        return authStr
+    except Exception as e:
+        print('ERR! ' + str(e))
+        raise
+
 def fetch_xml(eidr_id):
     try:
         # Construct the EIDR URL using the provided ID
-        url = f"https://resolve.eidr.org/EIDR/object/{eidr_id}"
+        url = f"https://resolve.eidr.org/EIDR/object/{eidr_id}?type=AlternateID"
         
+        # Generate the authorization header
+        auth_header = makeHeader()
+        
+        # Prepare headers with the authorization information
+        headers = {
+            'Authorization': auth_header
+        }
+
         # Make a request to fetch the XML data
-        response = requests.get(url)
+        response = requests.get(url, headers=headers)
         
         # Check if the request was successful
         if response.status_code == 200:
             # Parse the XML content
             xml_data = response.text
+            root = ET.fromstring(xml_data)
+
+            # Check if the request was valid by inspecting the Status/Code in the XML
+            namespaces = {'ns': 'http://www.eidr.org/schema'}  # Define namespace for parsing
+            status_code_elem = root.find('.//ns:Code', namespaces)
+            status_text_elem = root.find('.//ns:Type', namespaces)
+            
+            # Check the response code in the XML
+            if status_code_elem is not None and status_code_elem.text != "0":
+                # If the code is not "0", it indicates an error
+                print(f"Failed to fetch valid data for {eidr_id}, Status Code: {status_code_elem.text}, Error: {status_text_elem.text}")
+                return None
+
+            # If the code is "0", proceed with parsing
             print(f"Successfully fetched XML for {eidr_id}")
+            
+            # Parse and inspect the XML structure if needed
+            print("Inspecting the XML structure:")
+            for elem in root.iter():
+                print(f"Tag: {elem.tag}, Text: {elem.text}")
+            
             return xml_data
         else:
             print(f"Failed to fetch XML for {eidr_id}, Status Code: {response.status_code}")
             return None
     except requests.exceptions.RequestException as e:
         print(f"An error occurred while fetching XML: {e}")
+        return None
+    except ET.ParseError as e:
+        print(f"Error parsing XML: {e}")
         return None
     # Also log to the console
 # displays help messages via a function.
@@ -275,12 +320,12 @@ def main():
     global EIDRTOALTID_LOGIN, EIDRTOALTID_PARTYID, EIDRTOALTID_PASSWORD, REGISTRY_KEY, requestPagesize, IDList
     global eidr_id, alt_id_domain, alt_id_type, alt_id_relation
 
-    SDK_VERSION = '2.7.0'
+    SDK_VERSION = '2.7.1'
     eidr_id = ' '
     alt_id_domain = ' '
     alt_id_type = ' '
     alt_id_relation = ' '
-    REGISTRY_KEY = 'sandbox1'
+    REGISTRY_KEY = 'resolve'
     requestPagesize = 100
 
     # Create parser and set the custom formatter with adjustable spacing
