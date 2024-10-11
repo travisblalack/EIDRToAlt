@@ -233,8 +233,6 @@ def main():
                 print(f"Output saved to {args.output}")
             else:
                 print(f"Output Data for EIDR ID {eidr_id}:\n{output_data}")
-        else:
-            print(f"No valid XML record for EIDR ID {eidr_id}")
 
 # This function is responsible for writing the output data to a file
 def write_output_file(output_path, data):
@@ -245,19 +243,27 @@ def write_output_file(output_path, data):
             # Check if AlternateIDs exist and write them
             if 'AlternateIDs' in data and data['AlternateIDs']:
                 for alt_id in data['AlternateIDs']:
-                    # Write the common fields (value, type, relation)
-                    f.write(f"Alternate ID: {alt_id['value']}, Type: {alt_id['type']}, Relation: {alt_id['relation']}")
+                    # Get value and type, they should always be present
+                    alt_value = alt_id.get('value', 'N/A')  # Default to 'N/A' if missing
+                    alt_type = alt_id.get('type', 'N/A')  # Default to 'N/A' if missing
                     
-                    # If the type is Proprietary, also add the domain
-                    if alt_id['type'] == 'Proprietary' and 'domain' in alt_id:
-                        f.write(f", Domain: {alt_id['domain']}")
-                    
-                    f.write("\n")  # Move to the next line for the next Alternate ID
+                    # If the type is Proprietary, we must include the domain
+                    if alt_type == 'Proprietary':
+                        domain = alt_id.get('domain')  # No default here, it MUST exist
+                        if not domain:
+                            raise ValueError(f"Domain missing for Proprietary AlternateID: {alt_value}")
+                        f.write(f"Alternate ID: {alt_value}, Type: {alt_type}, Domain: {domain}\n")
+                    else:
+                        # Write other non-Proprietary AlternateIDs
+                        f.write(f"Alternate ID: {alt_value}, Type: {alt_type}\n")
+            
             f.write("\n")  # Add a newline for separation between records
             
         print(f"Data successfully written to {output_path}")
     except Exception as e:
         print(f"Failed to write to {output_path}: {e}")
+
+
 
                
 def setup_logging(logfile):
@@ -341,6 +347,7 @@ def parse_alternate_ids(root):
     namespaces = {'ns': 'http://www.eidr.org/schema'}
     
     result = {}
+    
     # First, handle the ID element
     id_elem = root.find('{http://www.eidr.org/schema}ID')
     if id_elem is not None:
@@ -356,25 +363,25 @@ def parse_alternate_ids(root):
         # Add the 'value', which is the text content of the element
         alt_id_info['value'] = alt_id.text
         
-        # Check if 'type' exists, if so, add it, otherwise add 'domain'
+        # Add 'type' if it exists
         alt_id_type = alt_id.attrib.get('{http://www.w3.org/2001/XMLSchema-instance}type')
-        alt_id_domain = alt_id.attrib.get('domain')
-        
         if alt_id_type:
             alt_id_info['type'] = alt_id_type
-        elif alt_id_domain:
+        
+        # Add 'domain' if it exists, even for non-proprietary types
+        alt_id_domain = alt_id.attrib.get('domain')
+        if alt_id_domain:
             alt_id_info['domain'] = alt_id_domain
         
-        # Optional relation attribute
-        relation = alt_id.attrib.get('relation')
-        if relation:
-            alt_id_info['relation'] = relation
-        
+        # Add 'relation' if it exists, otherwise add a default (N/A or blank space)
+        alt_id_relation = alt_id.attrib.get('relation', ' ')  # Use blank space if no relation
+        alt_id_info['relation'] = alt_id_relation
         
         # Append the constructed dictionary for this AlternateID
         result['AlternateIDs'].append(alt_id_info)
     
     return result
+
 
 def get_help_message(keyword):
     messages = {
@@ -504,8 +511,25 @@ def main():
                 
             }
 
-            if 'AlternateIDs' in xml_record:
-                output_data["AlternateIDs"] = xml_record['AlternateIDs']
+            for alt_id in xml_record['AlternateIDs']:
+                alt_type = alt_id.get('type', 'N/A')
+                alt_id_relation = alt_id.get('relation', ' ')
+                # If the type is "Proprietary", include both type and domain (mandatory)
+                if alt_type == 'Proprietary':
+                    
+                    output_data["AlternateIDs"].append({
+                        "value": alt_id.get('value', 'N/A'),
+                        "type": alt_type,
+                        "domain": alt_id.get('domain', 'N/A'),  # Mandatory domain for Proprietary type
+                        "relation": alt_id_relation
+                    })
+                else:
+                    # For other types, just include type and value
+                    output_data["AlternateIDs"].append({
+                        "value": alt_id.get('value', 'N/A'),
+                        "type": alt_type,
+                        "relation": alt_id_relation
+                    })
 
             if args.output:
                 write_output_file(args.output, output_data)
