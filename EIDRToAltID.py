@@ -282,7 +282,7 @@ def makeHeader():
     try:
         # Generate the hashed password and base64-encoded value
         pwBytes = bytes(EIDRTOALTID_PASSWORD, 'utf-8')
-        hash = hashlib.md5(pwBytes)  # Change to MD5 as per request
+        hash = hashlib.sha256(pwBytes)  # Change to MD5 as per request
         pwShadow = base64.b64encode(hash.digest())
         
         # Create the authorization string
