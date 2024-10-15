@@ -159,12 +159,6 @@ def get_query_body(query, eidr_login, eidr_partyid, eidr_password, registry_key)
         #print("Request data sent successfully")  # Debugging
         QueryPageOffset += 1  # Advance page offset for next round
 
-        # Make the actual request (you'll need to uncomment this line)
-        # 9/17/24 changed to post to post the data was formerely get
-        resp = requests.post(url, headers=hdr, data=body)
-        #print(f"Response Status: {resp.status_code}")
-        #print(f"Response Body: {resp.text}")
-
         #return resp.read()  # Return the response
     except Exception as e:
         print(f'Error in request: {e}', file=sys.stderr)
@@ -209,7 +203,7 @@ def query_registry_for_eidr_id(eidr_id):
 
 
 # This function is responsible for writing the output data to a file
-def write_output_file(output_path, data):
+def write_output_file(output_path, data,xml_record):
     try:
         with open(output_path, 'a', encoding='utf-8') as f:  # 'a' for append mode
             f.write(f"EIDR ID: {data['ID']}\n")
@@ -220,16 +214,17 @@ def write_output_file(output_path, data):
                     # Get value and type, they should always be present
                     alt_value = alt_id.get('value', 'N/A')  # Default to 'N/A' if missing
                     alt_type = alt_id.get('type', 'N/A')  # Default to 'N/A' if missing
+                    alt_id_relation = alt_id.get('relation','N/A')
                     
                     # If the type is Proprietary, we must include the domain
                     if alt_type == 'Proprietary':
                         domain = alt_id.get('domain')  # No default here, it MUST exist
                         if not domain:
                             raise ValueError(f"Domain missing for Proprietary AlternateID: {alt_value}")
-                        f.write(f"Alternate ID: {alt_value}, Type: {alt_type}, Domain: {domain}\n")
+                        f.write(f"Alternate ID: {alt_value}, Type: {alt_type}, Domain: {domain}, Relation: {alt_id_relation}\n")
                     else:
                         # Write other non-Proprietary AlternateIDs
-                        f.write(f"Alternate ID: {alt_value}, Type: {alt_type}\n")
+                        f.write(f"Alternate ID: {alt_value}, Type: {alt_type}, Relation: {alt_id_relation}\n")
             
             f.write("\n")  # Add a newline for separation between records
             
@@ -355,6 +350,93 @@ def parse_alternate_ids(root):
         result['AlternateIDs'].append(alt_id_info)
     
     return result
+import os
+import json
+
+def process_alternate_ids(xml_record):
+    """Format the alternate IDs from the XML record."""
+    output_data = {
+        "ID": xml_record.get('ID', 'N/A'),
+        "AlternateIDs": []
+    }
+
+    for alt_id in xml_record.get('AlternateIDs', []):
+        alt_type = alt_id.get('type', 'N/A')
+        alt_id_relation = alt_id.get('relation', 'N/A')  # Default value for relation
+        
+        # Handle the Proprietary type separately
+        if alt_type == 'Proprietary':
+            formatted_id = {
+                "value": alt_id.get('value', 'N/A'),
+                "type": alt_type,
+                "domain": alt_id.get('domain', 'N/A'),  # Mandatory for Proprietary type
+                "relation": alt_id_relation
+            }
+        else:
+            # For other types, just include type, value, and relation
+            formatted_id = {
+                "value": alt_id.get('value', 'N/A'),
+                "type": alt_type,
+                "relation": alt_id_relation
+            }
+        
+        output_data["AlternateIDs"].append(formatted_id)
+
+    return output_data
+    
+
+def main(args):
+    """Main function to handle the command-line arguments."""
+    if args.eidr_id:
+        eidr_id = args.eidr_id
+        print(f"Processing EIDR ID: {eidr_id}")
+
+        # Fetch the XML record using the fetch_xml function
+        xml_record = fetch_xml(eidr_id)
+
+        # Process the XML record and output the data
+        if xml_record:
+            output_data = process_alternate_ids(xml_record)
+            
+            # Save to output file if specified
+            if args.output:
+                file_mode = 'a' if os.path.exists(args.output) else 'w'
+                with open(args.output, file_mode, encoding='utf-8') as output_file:
+                    output_file.write(json.dumps(output_data, indent=4) + '\n')
+                print(f"Output saved to {args.output}")
+            else:
+                print(f"Formatted Output for EIDR ID {eidr_id}:\n{json.dumps(output_data, indent=4)}")
+        else:
+            print(f"No valid XML record found for EIDR ID {eidr_id}")
+    elif args.input:
+        try:
+            with open(args.input, 'r', encoding='utf-8') as f:
+                eidr_ids = f.read().splitlines()
+            print(f"Loaded {len(eidr_ids)} EIDR IDs from input file.")
+            
+            for eidr_id in eidr_ids:
+                print(f"Processing EIDR ID: {eidr_id}")
+                xml_record = fetch_xml(eidr_id)
+
+                # Process the XML record and output the data
+                if xml_record:
+                    output_data = process_alternate_ids(xml_record)
+                    
+                    # Save to output file if specified
+                    if args.output:
+                        file_mode = 'a' if os.path.exists(args.output) else 'w'
+                        with open(args.output, file_mode, encoding='utf-8') as output_file:
+                            output_file.write(json.dumps(output_data, indent=4) + '\n')
+                        print(f"Output for EIDR ID {eidr_id} saved to {args.output}")
+                    else:
+                        print(f"Formatted Output for EIDR ID {eidr_id}:\n{json.dumps(output_data, indent=4)}")
+                else:
+                    print(f"No valid XML record found for EIDR ID {eidr_id}")
+        except FileNotFoundError:
+            print(f"Input file {args.input} not found.")
+
+# This function would be called with the parsed arguments when the script is run
+
 
 
 def get_help_message(keyword):
@@ -479,31 +561,8 @@ def main():
 
         # Output the XML record or save it to a file if output is provided
         if xml_record:
-            output_data = {
-                "ID": eidr_id,
-                "AlternateIDs": []
-                
-            }
-
-            for alt_id in xml_record['AlternateIDs']:
-                alt_type = alt_id.get('type', 'N/A')
-                alt_id_relation = alt_id.get('relation', ' ')
-                # If the type is "Proprietary", include both type and domain (mandatory)
-                if alt_type == 'Proprietary':
-                    
-                    output_data["AlternateIDs"].append({
-                        "value": alt_id.get('value', 'N/A'),
-                        "type": alt_type,
-                        "domain": alt_id.get('domain', 'N/A'),  # Mandatory domain for Proprietary type
-                        "relation": alt_id_relation
-                    })
-                else:
-                    # For other types, just include type and value
-                    output_data["AlternateIDs"].append({
-                        "value": alt_id.get('value', 'N/A'),
-                        "type": alt_type,
-                        "relation": alt_id_relation
-                    })
+            output_data = process_alternate_ids(xml_record)
+            
 
             if args.output:
                 file_mode = 'a' if os.path.exists(args.output) else 'w'
@@ -533,7 +592,7 @@ def main():
 
                 for alt_id in xml_record['AlternateIDs']:
                     alt_type = alt_id.get('type', ' ')
-                    alt_id_relation = alt_id.get('relation', ' ')
+                    alt_id_relation = alt_id.get('relation', ' N/A')
                     if alt_type == 'Proprietary':
                         output_data["AlternateIDs"].append({
                             "value": alt_id.get('value', ' '),
@@ -576,7 +635,7 @@ def main():
         IDList.append(args.eidr_id)
 
     # Fetch and write data
-    write_output_file(args.output, output_data)
+    write_output_file(args.output, output_data,xml_record)
 
 if __name__ == "__main__":
     main()
