@@ -2,6 +2,7 @@ import sys
 import base64
 import argparse
 import logging
+import os
 import xml.etree.ElementTree as ET
 import hashlib
 import uuid
@@ -205,34 +206,7 @@ def query_registry_for_eidr_id(eidr_id):
         print(f"Error querying registry: {e}")
         return None
 #used to write output to a file, not working as of 9/24/24
-def main():
-    # Your existing setup and argument parsing code...
 
-    # Fetch the XML for the given EIDR ID
-    if args.eidr_id:
-        eidr_id = args.eidr_id
-        print(f"Processing EIDR ID: {eidr_id}")
-
-        # Fetch the XML record using the fetch_xml function
-        xml_record = fetch_xml(eidr_id)
-
-        if xml_record:  # Ensure xml_record is not None
-            # Structure the output data with Alternate IDs
-            output_data = {
-                "ID": eidr_id,
-                "AlternateIDs": []
-            }
-
-            # Parse the alternate IDs from the XML record
-            if 'AlternateIDs' in xml_record:
-                output_data["AlternateIDs"] = xml_record['AlternateIDs']
-
-            # Write output to file if output argument is provided
-            if args.output:
-                write_output_file(args.output, output_data)
-                print(f"Output saved to {args.output}")
-            else:
-                print(f"Output Data for EIDR ID {eidr_id}:\n{output_data}")
 
 # This function is responsible for writing the output data to a file
 def write_output_file(output_path, data):
@@ -369,7 +343,7 @@ def parse_alternate_ids(root):
             alt_id_info['type'] = alt_id_type
         
         # Add 'domain' if it exists, even for non-proprietary types
-        alt_id_domain = alt_id.attrib.get('domain')
+        alt_id_domain = alt_id.attrib.get('domain',' ')
         if alt_id_domain:
             alt_id_info['domain'] = alt_id_domain
         
@@ -532,7 +506,10 @@ def main():
                     })
 
             if args.output:
-                write_output_file(args.output, output_data)
+                file_mode = 'a' if os.path.exists(args.output) else 'w'
+                with open(args.output, file_mode, encoding='utf-8') as output_file:
+                # Convert the output data to JSON and write it
+                    output_file.write(json.dumps(output_data, indent=4) + '\n')
                 print(f"Output saved to {args.output}")
             else:
                 print(f"XML Record for EIDR ID {eidr_id}:\n{xml_record}")
@@ -547,6 +524,29 @@ def main():
             for eidr_id in eidr_ids:
                 print(f"Processing EIDR ID: {eidr_id}")
                 xml_record = fetch_xml(eidr_id)
+
+                if xml_record:
+                    output_data = {
+                    "ID": eidr_id,
+                    "AlternateIDs": []
+                }
+
+                for alt_id in xml_record['AlternateIDs']:
+                    alt_type = alt_id.get('type', ' ')
+                    alt_id_relation = alt_id.get('relation', ' ')
+                    if alt_type == 'Proprietary':
+                        output_data["AlternateIDs"].append({
+                            "value": alt_id.get('value', ' '),
+                            "type": alt_type,
+                            "domain": alt_id.get('domain', ' '),
+                            "relation": alt_id_relation
+                        })
+                    else:
+                        output_data["AlternateIDs"].append({
+                            "value": alt_id.get('value', ' '),
+                            "type": alt_type,
+                            "relation": alt_id_relation
+                        })
                 print(f"XML Record for EIDR ID {eidr_id}:\n{xml_record}")
             
                 
@@ -557,8 +557,6 @@ def main():
     else:
         print("No EIDR ID or input file provided. Running default query.")
 
-    if args.output:
-        write_output_file(args.output, output_data)
 
     if args.opLog:
         setup_logging(args.opLog)
