@@ -230,7 +230,7 @@ def write_output_file(output_path, data,xml_record):
             
         print(f"Data successfully written to {output_path}")
     except Exception as e:
-        print(f"Failed to write to {output_path}: {e}")
+       return
 
 
 
@@ -261,7 +261,7 @@ def makeHeader():
         print('ERR! ' + str(e))
         raise
 
-def fetch_xml(eidr_id):
+def fetch_xml(eidr_id,target_type):
     try:
         # Construct the EIDR URL using the provided ID
         url = f"https://resolve.eidr.org/EIDR/object/{eidr_id}?type=AlternateID"
@@ -296,11 +296,13 @@ def fetch_xml(eidr_id):
 
             # If the code is "0", proceed with parsing
             print(f"Successfully fetched XML for {eidr_id}")
-            
-            # Parse and inspect the XML structure if needed
-            print("Inspecting the XML structure:")
-            
-            return parse_alternate_ids(root)
+            alt_id = parse_alternate_ids(root, target_type)
+            if alt_id:
+                print(f"Found alternate ID for type '{target_type}': {alt_id}")
+                return alt_id
+            else:
+                print(f"No alternate ID found for type '{target_type}'")
+                return None
         else:
             print(f"Failed to fetch XML for {eidr_id}, Status Code: {response.status_code}")
             return None
@@ -312,12 +314,12 @@ def fetch_xml(eidr_id):
         return None
     # Also log to the console
 # displays help messages via a function.
-def parse_alternate_ids(root):
+def parse_alternate_ids(root, target_type):
     namespaces = {'ns': 'http://www.eidr.org/schema'}
     
     result = {}
     
-    # First, handle the ID element
+    # Handle the ID element
     id_elem = root.find('{http://www.eidr.org/schema}ID')
     if id_elem is not None:
         result['ID'] = id_elem.text
@@ -338,16 +340,22 @@ def parse_alternate_ids(root):
             alt_id_info['type'] = alt_id_type
         
         # Add 'domain' if it exists, even for non-proprietary types
-        alt_id_domain = alt_id.attrib.get('domain',' ')
+        alt_id_domain = alt_id.attrib.get('domain', ' ')
         if alt_id_domain:
             alt_id_info['domain'] = alt_id_domain
         
-        # Add 'relation' if it exists, otherwise add a default (N/A or blank space)
-        alt_id_relation = alt_id.attrib.get('relation', ' ')  # Use blank space if no relation
+        # Add 'relation' if it exists, otherwise use a default value (N/A or blank space)
+        alt_id_relation = alt_id.attrib.get('relation', ' ')
         alt_id_info['relation'] = alt_id_relation
         
-        # Append the constructed dictionary for this AlternateID
-        result['AlternateIDs'].append(alt_id_info)
+        # Check if this alternate ID matches the target type
+        if alt_id_type == target_type:
+            # Add the filtered AlternateID info to the result
+            result['AlternateIDs'].append(alt_id_info)
+    
+    # If no alternate IDs match the target type, return an empty list
+    if not result['AlternateIDs']:
+        print(f"No alternate IDs found for type '{target_type}'")
     
     return result
 import os
@@ -466,12 +474,9 @@ def main():
     global eidr_id, alt_id_domain, alt_id_type, alt_id_relation
 
     SDK_VERSION = '2.7.1'
-    eidr_id = ' '
-    alt_id_domain = ' '
-    alt_id_type = ' '
-    alt_id_relation = ' '
     REGISTRY_KEY = 'resolve'
     requestPagesize = 100
+    IDList = []
 
     # Create parser and set the custom formatter with adjustable spacing
     parser = argparse.ArgumentParser(formatter_class=CustomHelpFormatter, add_help=False)
@@ -503,11 +508,13 @@ def main():
         print("No arguments provided. Displaying help options.")
         parser.print_help()
         sys.exit(1)
+
     if args.eidr_id and not (args.type or args.domain):
         print("Error: When providing an EIDR ID, you must also provide either a type (--type) or a domain (--domain).")
         parser.print_help()
         sys.exit(1)
-
+        write_output_file(args.output, output_data,xml_record)
+    # Load configuration
     try:
         if args.config:
             config = load_config_from_xml(args.config)
@@ -522,7 +529,7 @@ def main():
                 return
         else:
             config = {
-                "URL": f"https://resolve.eidr.org/EIDR", # changed to resolve as of 10/1/24
+                "URL": f"https://resolve.eidr.org/EIDR",  # Changed to resolve as of 10/1/24
                 "EIDR_PARTYID": EIDRTOALTID_PARTYID,
                 "EIDR_LOGIN": EIDRTOALTID_LOGIN,
                 "EIDR_PASSWORD": EIDRTOALTID_PASSWORD,
@@ -540,82 +547,51 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    if args.pagesize:
-        print(f"Page size set to: {requestPagesize}")
-
-    if args.showconfig and 'pagesize' in args:
-        print("Configuration with custom page size:")
-        print(f"Page size: {config['pagesize']}")
-        print(f"URL: {config['URL']}")
-        print(f"Party ID: {config['EIDR_PARTYID']}")
-        print(f"Login: {config['EIDR_LOGIN']}")
-        return
-
-    # Fetch the XML for the given EIDR ID
+    # Process input EIDR ID or file
     if args.eidr_id:
         eidr_id = args.eidr_id
-        print(f"Processing EIDR ID: {eidr_id}")
-
-        # Fetch the XML record using the fetch_xml function
-        xml_record = fetch_xml(eidr_id)
-
-        # Output the XML record or save it to a file if output is provided
+        if args.type:
+            target_type = args.type
+            print(f"Processing EIDR ID: {eidr_id} with type: {target_type}")
+            xml_record = fetch_xml(eidr_id, target_type)
+        elif args.domain:
+            alt_id_domain = args.domain
+            print(f"Processing EIDR ID: {eidr_id} with domain: {alt_id_domain}")
+            xml_record = fetch_xml(eidr_id, "Proprietary")
+        else:
+            print("Error: Please provide either --type or --domain.")
+            parser.print_help()
+            sys.exit(1)
         if xml_record:
             output_data = process_alternate_ids(xml_record)
-            
-
             if args.output:
-                file_mode = 'a' if os.path.exists(args.output) else 'w'
-                with open(args.output, file_mode, encoding='utf-8') as output_file:
-                # Convert the output data to JSON and write it
-                    output_file.write(json.dumps(output_data, indent=4) + '\n')
-                print(f"Output saved to {args.output}")
+                write_output(args.output, output_data)
             else:
                 print(f"XML Record for EIDR ID {eidr_id}:\n{xml_record}")
         else:
             print(f"No valid XML record found for EIDR ID {eidr_id}")
+
     elif args.input:
         try:
             with open(args.input, 'r', encoding='utf-8') as f:
                 eidr_ids = f.read().splitlines()
             print(f"Loaded {len(eidr_ids)} EIDR IDs from input file.")
-            
+
             for eidr_id in eidr_ids:
-                print(f"Processing EIDR ID: {eidr_id}")
                 xml_record = fetch_xml(eidr_id)
-
                 if xml_record:
-                    output_data = {
-                    "ID": eidr_id,
-                    "AlternateIDs": []
-                }
-
-                for alt_id in xml_record['AlternateIDs']:
-                    alt_type = alt_id.get('type', ' ')
-                    alt_id_relation = alt_id.get('relation', ' N/A')
-                    if alt_type == 'Proprietary':
-                        output_data["AlternateIDs"].append({
-                            "value": alt_id.get('value', ' '),
-                            "type": alt_type,
-                            "domain": alt_id.get('domain', ' '),
-                            "relation": alt_id_relation
-                        })
+                    output_data = process_alternate_ids(xml_record)
+                    if args.output:
+                        file_mode = 'a' if os.path.exists(args.output) else 'w'
+                        with open(args.output, file_mode, encoding='utf-8') as output_file:
+                            output_file.write(json.dumps(output_data, indent=4) + '\n')
                     else:
-                        output_data["AlternateIDs"].append({
-                            "value": alt_id.get('value', ' '),
-                            "type": alt_type,
-                            "relation": alt_id_relation
-                        })
-                print(f"XML Record for EIDR ID {eidr_id}:\n{xml_record}")
-            
-                
+                        print(f"XML Record for EIDR ID {eidr_id}:\n{xml_record}:\n{json.dumps(output_data, indent=4)}")
         except FileNotFoundError:
             print(f"Input file {args.input} not found.")
-            parser.print_help()
             sys.exit(1)
     else:
-        print("No EIDR ID or input file provided. Running default query.")
-
+        print("No EIDR ID or input file provided.")
 
     if args.opLog:
         setup_logging(args.opLog)
@@ -626,16 +602,14 @@ def main():
         print(f"Max errors allowed: {args.maxErrors}")
 
     if args.maxCount:
-        print(f"Count provided: Processing {args.maxCount} EIDR records.")
+        print(f"Processing up to {args.maxCount} EIDR records.")
 
-    # Create the query XML, including EIDR-ID only if provided
-
-    # Fill ID list
-    if args.eidr_id != '':
-        IDList.append(args.eidr_id)
-
-    # Fetch and write data
-    write_output_file(args.output, output_data,xml_record)
-
+def write_output(output_file, data):
+    """Writes the output data to a specified file."""
+    file_mode = 'a' if os.path.exists(output_file) else 'w'
+    with open(output_file, file_mode, encoding='utf-8') as f:
+        f.write(json.dumps(data, indent=4) + '\n')
+    print(f"Output saved to {output_file}")
+    
 if __name__ == "__main__":
     main()
