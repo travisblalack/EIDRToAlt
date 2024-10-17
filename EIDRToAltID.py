@@ -340,13 +340,14 @@ def parse_alternate_ids(root, target_type):
             alt_id_info['type'] = alt_id_type
         
         # Add 'domain' if it exists, even for non-proprietary types
-        alt_id_domain = alt_id.attrib.get('domain', ' ')
+        alt_id_domain = alt_id.attrib.get('domain', None)
         if alt_id_domain:
             alt_id_info['domain'] = alt_id_domain
         
-        # Add 'relation' if it exists, otherwise use a default value (N/A or blank space)
-        alt_id_relation = alt_id.attrib.get('relation', ' ')
-        alt_id_info['relation'] = alt_id_relation
+        # Add 'relation' only if it exists
+        alt_id_relation = alt_id.attrib.get('relation')
+        if alt_id_relation:
+            alt_id_info['relation'] = alt_id_relation
         
         # Check if this alternate ID matches the target type
         if alt_id_type == target_type:
@@ -358,6 +359,7 @@ def parse_alternate_ids(root, target_type):
         print(f"No alternate IDs found for type '{target_type}'")
     
     return result
+
 import os
 import json
 
@@ -373,30 +375,41 @@ def process_alternate_ids(xml_record):
     for alt_id in xml_record.get('AlternateIDs', []):
         alt_value = alt_id.get('value', 'N/A')
         alt_type = alt_id.get('type', 'N/A')
-        alt_relation = alt_id.get('relation', ' ')  # Default value for relation
+        alt_relation = alt_id.get('relation', None)  # None if no relation is present
 
-        # Append to JSON-like output
+        # Build the formatted ID for JSON-like output
         formatted_id = {
             "type": alt_type,
-            "value": alt_value,
-            "domain": alt_id.get('domain', 'N/A'),
-            "relation": alt_relation
+            "value": alt_value
         }
+
+        # Add the domain only if the type is Proprietary
+        if alt_type == 'Proprietary':
+            domain = alt_id.get('domain', 'N/A')
+            formatted_id["domain"] = domain
+
+        # Add the relation only if it exists
+        if alt_relation:
+            formatted_id["relation"] = alt_relation
+
+        # Append the formatted ID to the JSON-like output
         output_data["AlternateIDs"].append(formatted_id)
 
         # Prepare string output
-        string_format = f"Type: {alt_type}, Alternate ID: {alt_value}, "
+        string_format = f"Type: {alt_type}, Alternate ID: {alt_value}"
 
         # If the type is Proprietary, add the domain
         if alt_type == 'Proprietary':
-            domain = alt_id.get('domain', 'N/A')
             string_format += f", Domain: {domain}"
+
+        # Append relation to string output if it exists
+        if alt_relation:
+            string_format += f", Relation: {alt_relation}"
 
         # Append the formatted ID to the string output lines
         output_lines.append(string_format)
 
     return output_data, output_lines
-
 
     
 
