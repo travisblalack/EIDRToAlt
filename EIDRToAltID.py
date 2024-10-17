@@ -362,35 +362,42 @@ import os
 import json
 
 def process_alternate_ids(xml_record):
-    """Format the alternate IDs from the XML record."""
+    """Format the alternate IDs from the XML record into both JSON-like and string formats."""
     output_data = {
         "ID": xml_record.get('ID', 'N/A'),
         "AlternateIDs": []
     }
 
+    output_lines = []  # For the string output
+
     for alt_id in xml_record.get('AlternateIDs', []):
+        alt_value = alt_id.get('value', 'N/A')
         alt_type = alt_id.get('type', 'N/A')
-        alt_id_relation = alt_id.get('relation', 'N/A')  # Default value for relation
-        
-        # Handle the Proprietary type separately
-        if alt_type == 'Proprietary':
-            formatted_id = {
-                "value": alt_id.get('value', 'N/A'),
-                "type": alt_type,
-                "domain": alt_id.get('domain', 'N/A'),  # Mandatory for Proprietary type
-                "relation": alt_id_relation
-            }
-        else:
-            # For other types, just include type, value, and relation
-            formatted_id = {
-                "value": alt_id.get('value', 'N/A'),
-                "type": alt_type,
-                "relation": alt_id_relation
-            }
-        
+        alt_relation = alt_id.get('relation', ' ')  # Default value for relation
+
+        # Append to JSON-like output
+        formatted_id = {
+            "type": alt_type,
+            "value": alt_value,
+            "domain": alt_id.get('domain', 'N/A'),
+            "relation": alt_relation
+        }
         output_data["AlternateIDs"].append(formatted_id)
 
-    return output_data
+        # Prepare string output
+        string_format = f"Type: {alt_type}, Alternate ID: {alt_value}, "
+
+        # If the type is Proprietary, add the domain
+        if alt_type == 'Proprietary':
+            domain = alt_id.get('domain', 'N/A')
+            string_format += f", Domain: {domain}"
+
+        # Append the formatted ID to the string output lines
+        output_lines.append(string_format)
+
+    return output_data, output_lines
+
+
     
 
 def main(args):
