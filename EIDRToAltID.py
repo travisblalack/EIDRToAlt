@@ -428,7 +428,8 @@ def main(args):
             
             # Save to output file if specified
             if args.output:
-                file_mode = 'a' if os.path.exists(args.output) else 'w'
+                
+    
                 with open(args.output, file_mode, encoding='utf-8') as output_file:
                     output_file.write(json.dumps(output_data, indent=4) + '\n')
                 print(f"Output saved to {args.output}")
@@ -452,8 +453,7 @@ def main(args):
                     
                     # Save to output file if specified
                     if args.output:
-                        file_mode = 'a' if os.path.exists(args.output) else 'w'
-                        with open(args.output, file_mode, encoding='utf-8') as output_file:
+                        with open(args.output, 'w', encoding='utf-8') as output_file:
                             output_file.write(json.dumps(output_data, indent=4) + '\n')
                         print(f"Output for EIDR ID {eidr_id} saved to {args.output}")
                     else:
@@ -549,7 +549,7 @@ def main():
                 return
         else:
             config = {
-                "URL": f"https://resolve.eidr.org/EIDR",  # Changed to resolve as of 10/1/24
+                "URL": f"https://resolve.eidr.org/EIDR",
                 "EIDR_PARTYID": EIDRTOALTID_PARTYID,
                 "EIDR_LOGIN": EIDRTOALTID_LOGIN,
                 "EIDR_PASSWORD": EIDRTOALTID_PASSWORD,
@@ -626,8 +626,7 @@ def main():
 
 def write_output(output_file, data):
     """Writes the output data to a specified file."""
-    file_mode = 'a' if os.path.exists(output_file) else 'w'
-    with open(output_file, file_mode, encoding='utf-8') as f:
+    with open(output_file, 'w', encoding='utf-8') as f:
         f.write(json.dumps(data, indent=4) + '\n')
     print(f"Output saved to {output_file}")
     
