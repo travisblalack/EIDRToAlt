@@ -363,8 +363,9 @@ def parse_alternate_ids(root, target_type):
 import os
 import json
 
-def process_alternate_ids(xml_record):
-    """Format the alternate IDs from the XML record into both JSON-like and string formats."""
+def process_alternate_ids(xml_record, domain_filter=None):
+    """Format the alternate IDs from the XML record into both JSON-like and string formats,
+    and filter by domain if a domain filter is provided."""
     output_data = {
         "ID": xml_record.get('ID', 'N/A'),
         "AlternateIDs": []
@@ -376,27 +377,35 @@ def process_alternate_ids(xml_record):
         alt_value = alt_id.get('value', 'N/A')
         alt_type = alt_id.get('type', 'N/A')
         alt_relation = alt_id.get('relation', None)  # None if no relation is present
+        domain = alt_id.get('domain', 'N/A')
+
+        # If a domain filter is specified, skip alternate IDs that don't match the filter
+        if domain_filter and domain_filter not in domain:
+            continue
 
         # Build the formatted ID for JSON-like output
         formatted_id = {
-            "type": alt_type,
             "value": alt_value
         }
 
         # Add the domain only if the type is Proprietary
         if alt_type == 'Proprietary':
-            domain = alt_id.get('domain', 'N/A')
             formatted_id["domain"] = domain
 
         # Add the relation only if it exists
         if alt_relation:
             formatted_id["relation"] = alt_relation
 
+        if not domain_filter:
+            formatted_id["type"] = alt_type
+
         # Append the formatted ID to the JSON-like output
         output_data["AlternateIDs"].append(formatted_id)
 
-        # Prepare string output
-        string_format = f"Type: {alt_type}, Alternate ID: {alt_value}"
+        if domain_filter:
+            string_format = f"Alternate ID: {alt_value}"
+        else:
+            string_format = f"Type: {alt_type}, Alternate ID: {alt_value}"
 
         # If the type is Proprietary, add the domain
         if alt_type == 'Proprietary':
@@ -410,6 +419,7 @@ def process_alternate_ids(xml_record):
         output_lines.append(string_format)
 
     return output_data, output_lines
+
 
     
 
@@ -430,7 +440,7 @@ def main(args):
             if args.output:
                 
     
-                with open(args.output, file_mode, encoding='utf-8') as output_file:
+                with open(args.output, encoding='utf-8') as output_file:
                     output_file.write(json.dumps(output_data, indent=4) + '\n')
                 print(f"Output saved to {args.output}")
             else:
@@ -583,7 +593,7 @@ def main():
             parser.print_help()
             sys.exit(1)
         if xml_record:
-            output_data = process_alternate_ids(xml_record)
+            output_data = process_alternate_ids(xml_record, domain_filter=args.domain)
             if args.output:
                 write_output(args.output, output_data)
             else:
@@ -600,7 +610,7 @@ def main():
             for eidr_id in eidr_ids:
                 xml_record = fetch_xml(eidr_id)
                 if xml_record:
-                    output_data = process_alternate_ids(xml_record)
+                    output_data = process_alternate_ids(xml_record, domain_filter=args.domain)
                     if args.output:
                         file_mode = 'a' if os.path.exists(args.output) else 'w'
                         with open(args.output, file_mode, encoding='utf-8') as output_file:
