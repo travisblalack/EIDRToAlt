@@ -368,10 +368,12 @@ def process_alternate_ids(xml_record, domain_filter=None):
     and filter by domain if a domain filter is provided."""
     output_data = {
         "ID": xml_record.get('ID', 'N/A'),
-        "AlternateIDs": []
+        "AlternateIDs": [],
+        "Message": ""
     }
 
     output_lines = []  # For the string output
+    count = 0  # Initialize the count
 
     for alt_id in xml_record.get('AlternateIDs', []):
         alt_value = alt_id.get('value', 'N/A')
@@ -401,7 +403,9 @@ def process_alternate_ids(xml_record, domain_filter=None):
 
         # Append the formatted ID to the JSON-like output
         output_data["AlternateIDs"].append(formatted_id)
+        count += 1  # Increment count
 
+        # Build the string output
         if domain_filter:
             string_format = f"Alternate ID: {alt_value}"
         else:
@@ -416,9 +420,11 @@ def process_alternate_ids(xml_record, domain_filter=None):
             string_format += f", Relation: {alt_relation}"
 
         # Append the formatted ID to the string output lines
+        output_data["Message"] = f"Number of Alternate IDs processed: {count}"
         output_lines.append(string_format)
 
-    return output_data, output_lines
+    return output_data, output_lines  # Return output_data, output_lines, and count
+
 
 
     
