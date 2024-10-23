@@ -261,7 +261,7 @@ def makeHeader():
         print('ERR! ' + str(e))
         raise
 
-def fetch_xml(eidr_id,target_type):
+def fetch_xml(eidr_id, target_type, verbose=False):
     try:
         # Construct the EIDR URL using the provided ID
         url = f"https://resolve.eidr.org/EIDR/object/{eidr_id}?type=AlternateID"
@@ -298,7 +298,9 @@ def fetch_xml(eidr_id,target_type):
             print(f"Successfully fetched XML for {eidr_id}")
             alt_id = parse_alternate_ids(root, target_type)
             if alt_id:
-                print(f"Found alternate ID for type '{target_type}': {alt_id}")
+                # Only print the dictionary if verbose mode is enabled
+                if verbose:
+                    print(f"Found alternate ID for type '{target_type}': {alt_id}")
                 return alt_id
             else:
                 print(f"No alternate ID found for type '{target_type}'")
@@ -312,9 +314,10 @@ def fetch_xml(eidr_id,target_type):
     except ET.ParseError as e:
         print(f"Error parsing XML: {e}")
         return None
+
     # Also log to the console
 # displays help messages via a function.
-def parse_alternate_ids(root, target_type):
+def parse_alternate_ids(root, target_type,verbose=False):
     namespaces = {'ns': 'http://www.eidr.org/schema'}
     
     result = {}
@@ -363,9 +366,19 @@ def parse_alternate_ids(root, target_type):
 import os
 import json
 
-def process_alternate_ids(xml_record, domain_filter=None):
-    """Format the alternate IDs from the XML record into both JSON-like and string formats,
-    and filter by domain if a domain filter is provided."""
+def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
+    """
+    Format the alternate IDs from the XML record into both JSON-like and string formats,
+    and filter by domain if a domain filter is provided.
+    
+    Parameters:
+        xml_record (dict): The parsed XML record containing alternate IDs.
+        domain_filter (str): Optional filter to restrict results to a specific domain.
+        verbose (bool): If True, outputs detailed processing steps.
+    
+    Returns:
+        tuple: A JSON-like dictionary of alternate IDs and a list of string-formatted IDs.
+    """
     output_data = {
         "ID": xml_record.get('ID', 'N/A'),
         "AlternateIDs": [],
@@ -423,8 +436,12 @@ def process_alternate_ids(xml_record, domain_filter=None):
         output_data["Message"] = f"Number of Alternate IDs processed: {count}"
         output_lines.append(string_format)
 
-    return output_data, output_lines  # Return output_data, output_lines, and count
+        # If verbose mode is enabled, print each alternate ID as it is processed
+        if verbose:
+            print(string_format)
 
+    # Return output_data and output_lines
+    return output_data, output_lines
 
 
     
@@ -588,12 +605,14 @@ def main():
         eidr_id = args.eidr_id
         if args.type:
             target_type = args.type
-            print(f"Processing EIDR ID: {eidr_id} with type: {target_type}")
-            xml_record = fetch_xml(eidr_id, target_type)
+            if args.verbose:
+                print(f"Processing EIDR ID: {eidr_id} with type: {target_type}")
+            xml_record = fetch_xml(eidr_id, target_type,verbose=args.verbose)
         elif args.domain:
             alt_id_domain = args.domain
-            print(f"Processing EIDR ID: {eidr_id} with domain: {alt_id_domain}")
-            xml_record = fetch_xml(eidr_id, "Proprietary")
+            if args.verbose:
+                print(f"Processing EIDR ID: {eidr_id} with domain: {alt_id_domain}")
+            xml_record = fetch_xml(eidr_id, "Proprietary",verbose=args.verbose)
         else:
             print("Error: Please provide either --type or --domain.")
             parser.print_help()
