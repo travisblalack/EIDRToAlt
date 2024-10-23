@@ -618,13 +618,17 @@ def main():
             parser.print_help()
             sys.exit(1)
         if xml_record:
-            output_data = process_alternate_ids(xml_record, domain_filter=args.domain)
+            output_data = process_alternate_ids(xml_record, domain_filter=args.domain,verbose=args.verbose)
             if args.output:
                 write_output(args.output, output_data)
             else:
-                print(f"XML Record for EIDR ID {eidr_id}:\n{xml_record}")
+                if args.verbose:
+                    print(f"XML Record for EIDR ID {eidr_id}:\n{xml_record}")
+                else:
+                    print(f"Successfully found record for EIDR ID {eidr_id}")
         else:
             print(f"No valid XML record found for EIDR ID {eidr_id}")
+
 
     elif args.input:
         try:
