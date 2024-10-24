@@ -212,8 +212,9 @@ def write_output_file(output_path, data,xml_record):
             if 'AlternateIDs' in data and data['AlternateIDs']:
                 for alt_id in data['AlternateIDs']:
                     # Get value and type, they should always be present
+                    alt_type = alt_id.get('type', 'N/A') 
                     alt_value = alt_id.get('value', 'N/A')  # Default to 'N/A' if missing
-                    alt_type = alt_id.get('type', 'N/A')  # Default to 'N/A' if missing
+                    # Default to 'N/A' if missing
                     alt_id_relation = alt_id.get('relation','N/A')
                     
                     # If the type is Proprietary, we must include the domain
@@ -221,10 +222,10 @@ def write_output_file(output_path, data,xml_record):
                         domain = alt_id.get('domain')  # No default here, it MUST exist
                         if not domain:
                             raise ValueError(f"Domain missing for Proprietary AlternateID: {alt_value}")
-                        f.write(f"Alternate ID: {alt_value}, Type: {alt_type}, Domain: {domain}, Relation: {alt_id_relation}\n")
+                        f.write(f" Type: {alt_type}, Alternate ID: {alt_value}, Domain: {domain}, Relation: {alt_id_relation}\n")
                     else:
                         # Write other non-Proprietary AlternateIDs
-                        f.write(f"Alternate ID: {alt_value}, Type: {alt_type}, Relation: {alt_id_relation}\n")
+                        f.write(f"Type: {alt_type}, Alternate ID: {alt_value},  Relation: {alt_id_relation}\n")
             
             f.write("\n")  # Add a newline for separation between records
             
@@ -335,13 +336,13 @@ def parse_alternate_ids(root, target_type,verbose=False):
         alt_id_info = {}
         
         # Add the 'value', which is the text content of the element
-        alt_id_info['value'] = alt_id.text
+       
         
         # Add 'type' if it exists
         alt_id_type = alt_id.attrib.get('{http://www.w3.org/2001/XMLSchema-instance}type')
         if alt_id_type:
             alt_id_info['type'] = alt_id_type
-        
+            alt_id_info['value'] = alt_id.text
         # Add 'domain' if it exists, even for non-proprietary types
         alt_id_domain = alt_id.attrib.get('domain', None)
         if alt_id_domain:
@@ -381,51 +382,49 @@ def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
     """
     output_data = {
         "ID": xml_record.get('ID', 'N/A'),
-        "AlternateIDs": [],
-        "Message": ""
+        "AlternateIDs": []
     }
 
     output_lines = []  # For the string output
     count = 0  # Initialize the count
 
     for alt_id in xml_record.get('AlternateIDs', []):
-        alt_value = alt_id.get('value', 'N/A')
         alt_type = alt_id.get('type', 'N/A')
-        alt_relation = alt_id.get('relation', None)  # None if no relation is present
+        alt_value = alt_id.get('value', 'N/A')
         domain = alt_id.get('domain', 'N/A')
-
+        alt_relation = alt_id.get('relation', None)  # None if no relation is present
+        
         # If a domain filter is specified, skip alternate IDs that don't match the filter
         if domain_filter and domain_filter not in domain:
             continue
+        
+        # Set type to "Proprietary" if domain filter is provided and matches
+        if domain_filter:
+            alt_type = "Proprietary"
 
         # Build the formatted ID for JSON-like output
         formatted_id = {
-            "value": alt_value
+            "type": alt_type,
+            "value": alt_value,
         }
 
         # Add the domain only if the type is Proprietary
-        if alt_type == 'Proprietary':
+        if alt_type == "Proprietary":
             formatted_id["domain"] = domain
 
         # Add the relation only if it exists
         if alt_relation:
             formatted_id["relation"] = alt_relation
 
-        if not domain_filter:
-            formatted_id["type"] = alt_type
-
         # Append the formatted ID to the JSON-like output
         output_data["AlternateIDs"].append(formatted_id)
         count += 1  # Increment count
 
         # Build the string output
-        if domain_filter:
-            string_format = f"Alternate ID: {alt_value}"
-        else:
-            string_format = f"Type: {alt_type}, Alternate ID: {alt_value}"
+        string_format = f"Type: {alt_type}, Value: {alt_value}"
 
         # If the type is Proprietary, add the domain
-        if alt_type == 'Proprietary':
+        if alt_type == "Proprietary":
             string_format += f", Domain: {domain}"
 
         # Append relation to string output if it exists
@@ -433,15 +432,19 @@ def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
             string_format += f", Relation: {alt_relation}"
 
         # Append the formatted ID to the string output lines
-        output_data["Message"] = f"Number of Alternate IDs processed: {count}"
         output_lines.append(string_format)
 
         # If verbose mode is enabled, print each alternate ID as it is processed
         if verbose:
             print(string_format)
 
+    # Print the number of alternate IDs processed in the terminal (not in the output)
+    print(f"Number of Alternate IDs processed: {count}")
+
     # Return output_data and output_lines
     return output_data, output_lines
+
+
 
 
     
