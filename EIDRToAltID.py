@@ -445,10 +445,6 @@ def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
     return output_data, output_lines
 
 
-
-
-    
-
 def main(args):
     """Main function to handle the command-line arguments."""
     if args.eidr_id:
@@ -640,7 +636,7 @@ def main():
             print(f"Loaded {len(eidr_ids)} EIDR IDs from input file.")
 
             for eidr_id in eidr_ids:
-                xml_record = fetch_xml(eidr_id)
+                xml_record = fetch_xml(eidr_id,args.domain)
                 if xml_record:
                     output_data = process_alternate_ids(xml_record, domain_filter=args.domain)
                     if args.output:
