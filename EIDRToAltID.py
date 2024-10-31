@@ -94,116 +94,11 @@ def load_config_from_xml(file_path):
         }
 
         return config
-def get_eidr_xml(eidr_id):
-    API_URL = f'https://resolve.eidr.org/EIDR/object/resolve/{eidr_id}?type=AlternateID'
-    
-    try:
-        # Make the HTTP request
-        response = requests.get(API_URL)
-        
-        if response.status_code == 200:
-            # Parse the response into XML
-            xml_data = response.content
-
-            # Pretty print the XML data using minidom
-            xml_parsed = minidom.parseString(xml_data)
-            pretty_xml = xml_parsed.toprettyxml(indent="  ")
-            
-            # Return the pretty XML
-            return pretty_xml
-        else:
-            raise Exception(f"Failed to retrieve data: {response.status_code} - {response.text}")
-    except Exception as e:
-        print(f"Error: {e}")
-        return None
 
 # Add debugging before the request
-def get_query_body(query, eidr_login, eidr_partyid, eidr_password, registry_key):
-    global QueryPageOffset
-
-    if not query:
-        raise ValueError("Query is empty")
-
-    req_xml = '<?xml version="1.0" encoding="UTF-8"?>' \
-              '<Request xmlns="http://www.eidr.org/schema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n' \
-              '<Operation>\n' \
-              '  <Query>\n' +  \
-              f'     <Expression>({query})</Expression>\n ' \
-              f'     <PageNumber>{QueryPageOffset}</PageNumber> <PageSize>{requestPagesize}</PageSize>\n' \
-              '  </Query>\n' \
-              '</Operation>\n' \
-              '</Request>'
-
-    try:
-        pwBytes = bytes(eidr_password, 'utf-8')
-        hash = hashlib.sha256(pwBytes) if registry_key == 'sandbox2' else hashlib.md5(pwBytes)
-
-        pwShadow = base64.b64encode(hash.digest())
-        authStr = f'Eidr {eidr_login}:{eidr_partyid}:{str(pwShadow, encoding="utf-8")}'
-
-        hdr = {'Content-Type': 'text/xml', 'Authorization': authStr, 'Accept': 'text/xml'}
-        body = bytes(req_xml, 'utf-8')
-
-        # Validate the URL
-        if not registry_key:
-            raise ValueError("Registry key is not provided")
-
-        # Disable SSL verification for testing
-        context = ssl._create_unverified_context()
-
-        # Validate request data
-        if not body:
-            raise ValueError("Request body is None")
-        
-        #r = requests.Request(url, headers=hdr, data=body)
-        #print("Request data sent successfully")  # Debugging
-        QueryPageOffset += 1  # Advance page offset for next round
-
-        #return resp.read()  # Return the response
-    except Exception as e:
-        print(f'Error in request: {e}', file=sys.stderr)
-        raise
-
-#May need to query registry
-def query_registry_for_eidr_id(eidr_id):
-    global EIDRTOALTID_LOGIN, EIDRTOALTID_PARTYID, EIDRTOALTID_PASSWORD, REGISTRY_KEY
-    
-    if not eidr_id:
-        raise ValueError("EIDR ID is required")
-    
-
-    query = f"/FullMetadata/BaseObjectData/AlternateID[@type='ShortDOI']/@value='{eidr_id}'"
-
-    try:
-        response = get_query_body(query, EIDRTOALTID_LOGIN, EIDRTOALTID_PARTYID, EIDRTOALTID_PASSWORD, REGISTRY_KEY)
-        if response.status_code != 200:
-            raise Exception(f"Failed to query registry: {response.status_code} - {response.text}")
-        
-        # Parse the XML response
-        response_text = response.text
-        results = doc.getElementsByTagName('SimpleMetadata')
-        
-        if len(results) == 0:
-            print("No results found for the given EIDR ID")
-            return None
-
-        # Process the XML response to extract relevant information
-        metadata = {}
-        for elem in results.item(0).getElementsByTagName('AlternateID'):
-            alt_id_type = elem.getAttribute('type')
-            alt_id_value = elem.firstChild.nodeValue
-            metadata[alt_id_type] = alt_id_value
-        
-        return metadata
-    
-    except Exception as e:
-        print(f"Error querying registry: {e}")
-        return None
-#used to write output to a file, not working as of 9/24/24
-
 
 # This function is responsible for writing the output data to a file
-def write_output_file(output_path, data,xml_record):
+def write_output_file(output_path, data):
     try:
         with open(output_path, 'a', encoding='utf-8') as f:  # 'a' for append mode
             f.write(f"EIDR ID: {data['ID']}\n")
@@ -262,14 +157,18 @@ def makeHeader():
         print('ERR! ' + str(e))
         raise
 
-def fetch_xml(eidr_id, target_type, verbose=False):
+def fetch_xml(eidr_id, verbose=False):
     try:
+        # Log input parameters
+       # print(f"Fetching XML for EIDR ID: {eidr_id} with target type: ")
+
         # Construct the EIDR URL using the provided ID
         url = f"https://resolve.eidr.org/EIDR/object/{eidr_id}?type=AlternateID"
-        
+        print(f"Constructed URL: {url}")
+
         # Generate the authorization header
         auth_header = makeHeader()
-        
+
         # Prepare headers with the authorization information
         headers = {
             'Authorization': auth_header
@@ -277,7 +176,7 @@ def fetch_xml(eidr_id, target_type, verbose=False):
 
         # Make a request to fetch the XML data
         response = requests.get(url, headers=headers)
-        
+
         # Check if the request was successful
         if response.status_code == 200:
             # Parse the XML content
@@ -288,7 +187,7 @@ def fetch_xml(eidr_id, target_type, verbose=False):
             namespaces = {'ns': 'http://www.eidr.org/schema'}  # Define namespace for parsing
             status_code_elem = root.find('.//ns:Code', namespaces)
             status_text_elem = root.find('.//ns:Type', namespaces)
-            
+
             # Check the response code in the XML
             if status_code_elem is not None and status_code_elem.text != "0":
                 # If the code is not "0", it indicates an error
@@ -297,33 +196,27 @@ def fetch_xml(eidr_id, target_type, verbose=False):
 
             # If the code is "0", proceed with parsing
             print(f"Successfully fetched XML for {eidr_id}")
-            alt_id = parse_alternate_ids(root, target_type)
-            if alt_id:
-                # Only print the dictionary if verbose mode is enabled
-                if verbose:
-                    print(f"Found alternate ID for type '{target_type}': {alt_id}")
-                return alt_id
-            else:
-                print(f"No alternate ID found for type '{target_type}'")
-                return None
+            alt_id = parse_alternate_ids(root,verbose)
+            return alt_id
+
         else:
-            print(f"Failed to fetch XML for {eidr_id}, Status Code: {response.status_code}")
+            print(f"Failed to fetch XML for {eidr_id}, Status Code: {response.status_code}, Response content: {response.text}")
             return None
+            
     except requests.exceptions.RequestException as e:
-        print(f"An error occurred while fetching XML: {e}")
+        print(f"An error occurred while fetching XML: {e}\n{traceback.format_exc()}")
         return None
     except ET.ParseError as e:
         print(f"Error parsing XML: {e}")
         return None
 
-    # Also log to the console
-# displays help messages via a function.
-def parse_alternate_ids(root, target_type,verbose=False):
+def parse_alternate_ids(root, target_type, verbose=False):
     namespaces = {'ns': 'http://www.eidr.org/schema'}
     
     result = {}
-    
+
     # Handle the ID element
+    #This adds the id number to output
     id_elem = root.find('{http://www.eidr.org/schema}ID')
     if id_elem is not None:
         result['ID'] = id_elem.text
@@ -336,15 +229,15 @@ def parse_alternate_ids(root, target_type,verbose=False):
         alt_id_info = {}
         
         # Add the 'value', which is the text content of the element
-       
+        alt_id_info['value'] = alt_id.text
         
         # Add 'type' if it exists
         alt_id_type = alt_id.attrib.get('{http://www.w3.org/2001/XMLSchema-instance}type')
         if alt_id_type:
             alt_id_info['type'] = alt_id_type
-            alt_id_info['value'] = alt_id.text
+        
         # Add 'domain' if it exists, even for non-proprietary types
-        alt_id_domain = alt_id.attrib.get('domain', None)
+        alt_id_domain = alt_id.attrib.get('domain')
         if alt_id_domain:
             alt_id_info['domain'] = alt_id_domain
         
@@ -357,6 +250,7 @@ def parse_alternate_ids(root, target_type,verbose=False):
         if alt_id_type == target_type:
             # Add the filtered AlternateID info to the result
             result['AlternateIDs'].append(alt_id_info)
+            print(f"Processing Alternate ID: {alt_id_info['value']} with type {alt_id_info['type']}")
     
     # If no alternate IDs match the target type, return an empty list
     if not result['AlternateIDs']:
@@ -368,18 +262,6 @@ import os
 import json
 
 def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
-    """
-    Format the alternate IDs from the XML record into both JSON-like and string formats,
-    and filter by domain if a domain filter is provided.
-    
-    Parameters:
-        xml_record (dict): The parsed XML record containing alternate IDs.
-        domain_filter (str): Optional filter to restrict results to a specific domain.
-        verbose (bool): If True, outputs detailed processing steps.
-    
-    Returns:
-        tuple: A JSON-like dictionary of alternate IDs and a list of string-formatted IDs.
-    """
     output_data = {
         "ID": xml_record.get('ID', 'N/A'),
         "AlternateIDs": []
@@ -392,7 +274,7 @@ def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
         alt_type = alt_id.get('type', 'N/A')
         alt_value = alt_id.get('value', 'N/A')
         domain = alt_id.get('domain', 'N/A')
-        alt_relation = alt_id.get('relation', None)  # None if no relation is present
+        alt_relation = alt_id.get('relation')  # None if no relation is present
         
         # If a domain filter is specified, skip alternate IDs that don't match the filter
         if domain_filter and domain_filter not in domain:
@@ -444,61 +326,6 @@ def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
     # Return output_data and output_lines
     return output_data, output_lines
 
-
-def main(args):
-    """Main function to handle the command-line arguments."""
-    if args.eidr_id:
-        eidr_id = args.eidr_id
-        print(f"Processing EIDR ID: {eidr_id}")
-
-        # Fetch the XML record using the fetch_xml function
-        xml_record = fetch_xml(eidr_id)
-
-        # Process the XML record and output the data
-        if xml_record:
-            output_data = process_alternate_ids(xml_record)
-            
-            # Save to output file if specified
-            if args.output:
-                
-    
-                with open(args.output, encoding='utf-8') as output_file:
-                    output_file.write(json.dumps(output_data, indent=4) + '\n')
-                print(f"Output saved to {args.output}")
-            else:
-                print(f"Formatted Output for EIDR ID {eidr_id}:\n{json.dumps(output_data, indent=4)}")
-        else:
-            print(f"No valid XML record found for EIDR ID {eidr_id}")
-    elif args.input:
-        try:
-            with open(args.input, 'r', encoding='utf-8') as f:
-                eidr_ids = f.read().splitlines()
-            print(f"Loaded {len(eidr_ids)} EIDR IDs from input file.")
-            
-            for eidr_id in eidr_ids:
-                print(f"Processing EIDR ID: {eidr_id}")
-                xml_record = fetch_xml(eidr_id)
-
-                # Process the XML record and output the data
-                if xml_record:
-                    output_data = process_alternate_ids(xml_record)
-                    
-                    # Save to output file if specified
-                    if args.output:
-                        with open(args.output, 'w', encoding='utf-8') as output_file:
-                            output_file.write(json.dumps(output_data, indent=4) + '\n')
-                        print(f"Output for EIDR ID {eidr_id} saved to {args.output}")
-                    else:
-                        print(f"Formatted Output for EIDR ID {eidr_id}:\n{json.dumps(output_data, indent=4)}")
-                else:
-                    print(f"No valid XML record found for EIDR ID {eidr_id}")
-        except FileNotFoundError:
-            print(f"Input file {args.input} not found.")
-
-# This function would be called with the parsed arguments when the script is run
-
-
-
 def get_help_message(keyword):
     messages = {
         'help': 'Show this help message and exit',
@@ -530,6 +357,12 @@ def main():
     requestPagesize = 100
     IDList = []
 
+    VALID_ID_TYPES = [
+    "Ad-ID", "AFT", "AMG", "Baseline", "BFI", "cIDF", "CRID", "DOI", "EAN",
+    "GRid", "GTIN", "IMDB", "ISAN", "ISRC", "ISTC", "IVA", "Lumire", "MUZE",
+    "Proprietary", "ShortDOI", "SMPTE_UMID", "TRIB", "TVG", "UPC", "URI", "URN", "UUID",
+]
+
     # Create parser and set the custom formatter with adjustable spacing
     parser = argparse.ArgumentParser(formatter_class=CustomHelpFormatter, add_help=False)
     parser.add_argument('-h', '--help', action='help', help=get_help_message('help'))
@@ -551,6 +384,7 @@ def main():
     parser.add_argument('-l', '--logfile', default=None, dest="opLog", help=get_help_message('logfile'))
 
     args = parser.parse_args()
+    
 
     if args.version:
         print(f"EIDR SDK Version: {SDK_VERSION}")
@@ -603,15 +437,15 @@ def main():
     if args.eidr_id:
         eidr_id = args.eidr_id
         if args.type:
-            target_type = args.type
+            alt_id_type = args.type
             if args.verbose:
-                print(f"Processing EIDR ID: {eidr_id} with type: {target_type}")
-            xml_record = fetch_xml(eidr_id, target_type,verbose=args.verbose)
+                print(f"Processing EIDR ID: {eidr_id} with type: {alt_id_type}")
+            xml_record = fetch_xml(eidr_id, alt_id_type)
         elif args.domain:
             alt_id_domain = args.domain
             if args.verbose:
                 print(f"Processing EIDR ID: {eidr_id} with domain: {alt_id_domain}")
-            xml_record = fetch_xml(eidr_id, "Proprietary",verbose=args.verbose)
+            xml_record = fetch_xml(eidr_id, "Proprietary")
         else:
             print("Error: Please provide either --type or --domain.")
             parser.print_help()
