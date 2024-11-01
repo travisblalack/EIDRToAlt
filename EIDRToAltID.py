@@ -15,7 +15,6 @@ from xml.dom import minidom
 
 global registryToUse
 global requestPagesize
-global verbose
 global debug
 global file
 global showCount
@@ -127,10 +126,7 @@ def write_output_file(output_path, data):
         print(f"Data successfully written to {output_path}")
     except Exception as e:
        return
-
-
-
-               
+    
 def setup_logging(logfile):
     """
     Set up logging configuration. Log to the specified file.
@@ -156,67 +152,37 @@ def makeHeader():
     except Exception as e:
         print('ERR! ' + str(e))
         raise
-
+# Initialize the global AUTH_HEADER
+AUTH_HEADER = {
+    "Authorization": makeHeader(),
+    "Content-Type": "application/json"
+}
 def fetch_xml(eidr_id, verbose=False):
-    try:
-        # Log input parameters
-       # print(f"Fetching XML for EIDR ID: {eidr_id} with target type: ")
+    # Construct the EIDR URL using the provided ID
+    url = f"https://resolve.eidr.org/EIDR/object/{eidr_id}?type=AlternateID"
+    print(f"Constructed URL: {url}")
 
-        # Construct the EIDR URL using the provided ID
-        url = f"https://resolve.eidr.org/EIDR/object/{eidr_id}?type=AlternateID"
-        print(f"Constructed URL: {url}")
+    # Make a request to fetch the XML data with the global AUTH_HEADER
+    response = requests.get(url, headers=AUTH_HEADER)
 
-        # Generate the authorization header
-        auth_header = makeHeader()
-
-        # Prepare headers with the authorization information
-        headers = {
-            'Authorization': auth_header
-        }
-
-        # Make a request to fetch the XML data
-        response = requests.get(url, headers=headers)
-
-        # Check if the request was successful
-        if response.status_code == 200:
-            # Parse the XML content
-            xml_data = response.text
-            root = ET.fromstring(xml_data)
-
-            # Check if the request was valid by inspecting the Status/Code in the XML
-            namespaces = {'ns': 'http://www.eidr.org/schema'}  # Define namespace for parsing
-            status_code_elem = root.find('.//ns:Code', namespaces)
-            status_text_elem = root.find('.//ns:Type', namespaces)
-
-            # Check the response code in the XML
-            if status_code_elem is not None and status_code_elem.text != "0":
-                # If the code is not "0", it indicates an error
-                print(f"Failed to fetch valid data for {eidr_id}, Status Code: {status_code_elem.text}, Error: {status_text_elem.text}")
-                return None
-
-            # If the code is "0", proceed with parsing
-            print(f"Successfully fetched XML for {eidr_id}")
-            alt_id = parse_alternate_ids(root,verbose)
-            return alt_id
-
-        else:
-            print(f"Failed to fetch XML for {eidr_id}, Status Code: {response.status_code}, Response content: {response.text}")
-            return None
-            
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred while fetching XML: {e}\n{traceback.format_exc()}")
-        return None
-    except ET.ParseError as e:
-        print(f"Error parsing XML: {e}")
+    # Check if the request was successful
+    if response.status_code == 200:
+        # Parse the XML content
+        xml_data = response.text
+        root = ET.fromstring(xml_data)
+        
+        # Parse and return alternate ID information
+        alt_id = parse_alternate_ids(root, verbose)
+        return alt_id
+    else:
+        print(f"Failed to fetch XML for {eidr_id}, Status Code: {response.status_code}, Response content: {response.text}")
         return None
 
 def parse_alternate_ids(root, target_type, verbose=False):
-    namespaces = {'ns': 'http://www.eidr.org/schema'}
-    
+    # This function writes to the output
     result = {}
 
-    # Handle the ID element
-    #This adds the id number to output
+    # Handle the ID element and add it to the result if it exists
     id_elem = root.find('{http://www.eidr.org/schema}ID')
     if id_elem is not None:
         result['ID'] = id_elem.text
@@ -236,7 +202,7 @@ def parse_alternate_ids(root, target_type, verbose=False):
         if alt_id_type:
             alt_id_info['type'] = alt_id_type
         
-        # Add 'domain' if it exists, even for non-proprietary types
+        # Add 'domain' if it exists
         alt_id_domain = alt_id.attrib.get('domain')
         if alt_id_domain:
             alt_id_info['domain'] = alt_id_domain
@@ -250,20 +216,25 @@ def parse_alternate_ids(root, target_type, verbose=False):
         if alt_id_type == target_type:
             # Add the filtered AlternateID info to the result
             result['AlternateIDs'].append(alt_id_info)
-            print(f"Processing Alternate ID: {alt_id_info['value']} with type {alt_id_info['type']}")
-    
+            
+            # Display information depending on the presence of 'domain'
+            domain_text = f", Domain: {alt_id_info['domain']}" if 'domain' in alt_id_info else ""
+            relation_text = f", Relation: {alt_id_info['relation']}" if 'relation' in alt_id_info else ""
+            print(f"Processing Alternate ID: {alt_id_info['value']} with type {alt_id_info['type']}{domain_text}{relation_text}")
+
     # If no alternate IDs match the target type, return an empty list
     if not result['AlternateIDs']:
         print(f"No alternate IDs found for type '{target_type}'")
     
     return result
 
+
 import os
 import json
 
 def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
     output_data = {
-        "ID": xml_record.get('ID', 'N/A'),
+        "ID": xml_record.get('ID'),
         "AlternateIDs": []
     }
 
@@ -350,7 +321,7 @@ def get_help_message(keyword):
 
 def main():
     global EIDRTOALTID_LOGIN, EIDRTOALTID_PARTYID, EIDRTOALTID_PASSWORD, REGISTRY_KEY, requestPagesize, IDList
-    global eidr_id, alt_id_domain, alt_id_type, alt_id_relation
+    global eidr_id, alt_id_domain, alt_id_type, alt_id_relation,verbose
 
     SDK_VERSION = '2.7.1'
     REGISTRY_KEY = 'resolve'
@@ -365,23 +336,28 @@ def main():
 
     # Create parser and set the custom formatter with adjustable spacing
     parser = argparse.ArgumentParser(formatter_class=CustomHelpFormatter, add_help=False)
+    #processes on their own
     parser.add_argument('-h', '--help', action='help', help=get_help_message('help'))
     parser.add_argument('--version', action='store_true', help=get_help_message('version'))
     parser.add_argument('--showconfig', action='store_true', help=get_help_message('showconfig'))
+    
+    parser.add_argument('-c', '--config', required=False, help=get_help_message('config'))
+    parser.add_argument('-p', type=int, default=100, dest="pagesize", help=get_help_message('pagesize'))
+    #store true merely means True or False just like a boolean flag (not sure if should be include4d on own)
+    parser.add_argument('-v', '--verbose', action="store_true", default=False, dest="verbose", help=get_help_message('verbose'))
+    parser.add_argument('-id', '--eidr_id', type=str, help=get_help_message('eidr_id'))
+    parser.add_argument('-o', '--output', required=False, help=get_help_message('output'))
+    parser.add_argument('--count', type=int, dest="maxCount", help=get_help_message('showcount'))
+    parser.add_argument('-x', '--maxerrs', type=int, default=10, dest="maxErrors", help=get_help_message('maxErrors'))
+    parser.add_argument('-l', '--logfile', default=None, dest="opLog", help=get_help_message('logfile'))
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument('-dom', '--domain', required=False, help=get_help_message('domain'))
     group.add_argument('-t', '--type', required=False, help=get_help_message('type'))
-    parser.add_argument('-id', '--eidr_id', type=str, help=get_help_message('eidr_id'))
+   
     group.add_argument('-i', '--input', required=False, help=get_help_message('input'))
-    parser.add_argument('-o', '--output', required=False, help=get_help_message('output'))
+    
 
-    parser.add_argument('-c', '--config', required=False, help=get_help_message('config'))
-    parser.add_argument('-p', type=int, default=100, dest="pagesize", help=get_help_message('pagesize'))
-    parser.add_argument('-v', '--verbose', action="store_true", default=False, dest="verbose", help=get_help_message('verbose'))
-    parser.add_argument('--count', type=int, dest="maxCount", help=get_help_message('showcount'))
-    parser.add_argument('-x', '--maxerrs', type=int, default=10, dest="maxErrors", help=get_help_message('maxErrors'))
-    parser.add_argument('-l', '--logfile', default=None, dest="opLog", help=get_help_message('logfile'))
 
     args = parser.parse_args()
     
@@ -404,7 +380,7 @@ def main():
     try:
         if args.config:
             config = load_config_from_xml(args.config)
-            if args.verbose:
+            if verbose:
                 print(f"Loaded config from file: {args.config}")
             if config and args.showconfig:
                 print("Config loaded from XML file:")
@@ -421,13 +397,6 @@ def main():
                 "EIDR_PASSWORD": EIDRTOALTID_PASSWORD,
                 "PAGESIZE": requestPagesize,
             }
-            if args.showconfig:
-                print("Default configuration:")
-                print(f"URL: {config['URL']}")
-                print(f"Party ID: {config['EIDR_PARTYID']}")
-                print(f"Login: {config['EIDR_LOGIN']}")
-                print(f"Page Size: {config['PAGESIZE']}")
-                return
     except Exception as e:
         print(f"Failed to load configuration: {e}", file=sys.stderr)
         parser.print_help()
@@ -438,12 +407,12 @@ def main():
         eidr_id = args.eidr_id
         if args.type:
             alt_id_type = args.type
-            if args.verbose:
+            if verbose:
                 print(f"Processing EIDR ID: {eidr_id} with type: {alt_id_type}")
             xml_record = fetch_xml(eidr_id, alt_id_type)
         elif args.domain:
             alt_id_domain = args.domain
-            if args.verbose:
+            if verbose:
                 print(f"Processing EIDR ID: {eidr_id} with domain: {alt_id_domain}")
             xml_record = fetch_xml(eidr_id, "Proprietary")
         else:
@@ -451,11 +420,11 @@ def main():
             parser.print_help()
             sys.exit(1)
         if xml_record:
-            output_data = process_alternate_ids(xml_record, domain_filter=args.domain,verbose=args.verbose)
+            output_data = process_alternate_ids(xml_record, domain_filter=args.domain,verbose=False)
             if args.output:
                 write_output(args.output, output_data)
             else:
-                if args.verbose:
+                if verbose:
                     print(f"XML Record for EIDR ID {eidr_id}:\n{xml_record}")
                 else:
                     print(f"Successfully found record for EIDR ID {eidr_id}")
@@ -497,10 +466,15 @@ def main():
         print(f"Processing up to {args.maxCount} EIDR records.")
 
 def write_output(output_file, data):
-    """Writes the output data to a specified file."""
-    with open(output_file, 'w', encoding='utf-8') as f:
-        f.write(json.dumps(data, indent=4) + '\n')
-    print(f"Output saved to {output_file}")
+    """Writes the output data to a specified file, or to the console if no file is provided."""
+    output = json.dumps(data, indent=4)
+    
+    if output_file:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(output + '\n')
+        print(f"Output saved to {output_file}")
+    else:
+        print("Output:\n", output)
     
 if __name__ == "__main__":
     main()
