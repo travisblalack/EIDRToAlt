@@ -158,6 +158,10 @@ AUTH_HEADER = {
     "Content-Type": "application/json"
 }
 def fetch_xml(eidr_id, verbose=False):
+
+    if len(eidr_id) != 34:
+        print("Invalid EIDR ID")
+        return None
     # Construct the EIDR URL using the provided ID
     url = f"https://resolve.eidr.org/EIDR/object/{eidr_id}?type=AlternateID"
     print(f"Constructed URL: {url}")
@@ -185,38 +189,46 @@ def parse_alternate_ids(root, target_type, verbose=False):
     # Handle the ID element and add it to the result if it exists
     id_elem = root.find('{http://www.eidr.org/schema}ID')
     if id_elem is not None:
-        result['ID'] = id_elem.text
-    
+        eidr_id = id_elem.text
+        # Check if the ID length is valid (should be 34 characters)
+        if len(eidr_id) != 34:
+            print("Invalid EIDR ID")
+            return result  # Return an empty result or handle as needed
+        result['ID'] = eidr_id
+    else:
+        print("No ID element found")
+        return result
+
     # Initialize a list to store alternate IDs
     result['AlternateIDs'] = []
-    
+
     # Iterate over AlternateID elements
     for alt_id in root.findall('{http://www.eidr.org/schema}AlternateID'):
         alt_id_info = {}
-        
+
         # Add the 'value', which is the text content of the element
         alt_id_info['value'] = alt_id.text
-        
+
         # Add 'type' if it exists
         alt_id_type = alt_id.attrib.get('{http://www.w3.org/2001/XMLSchema-instance}type')
         if alt_id_type:
             alt_id_info['type'] = alt_id_type
-        
+
         # Add 'domain' if it exists
         alt_id_domain = alt_id.attrib.get('domain')
         if alt_id_domain:
             alt_id_info['domain'] = alt_id_domain
-        
+
         # Add 'relation' only if it exists
         alt_id_relation = alt_id.attrib.get('relation')
         if alt_id_relation:
             alt_id_info['relation'] = alt_id_relation
-        
+
         # Check if this alternate ID matches the target type
         if alt_id_type == target_type:
             # Add the filtered AlternateID info to the result
             result['AlternateIDs'].append(alt_id_info)
-            
+
             # Display information depending on the presence of 'domain'
             domain_text = f", Domain: {alt_id_info['domain']}" if 'domain' in alt_id_info else ""
             relation_text = f", Relation: {alt_id_info['relation']}" if 'relation' in alt_id_info else ""
@@ -225,8 +237,9 @@ def parse_alternate_ids(root, target_type, verbose=False):
     # If no alternate IDs match the target type, return an empty list
     if not result['AlternateIDs']:
         print(f"No alternate IDs found for type '{target_type}'")
-    
+
     return result
+
 
 
 import os
@@ -321,7 +334,7 @@ def get_help_message(keyword):
 
 def main():
     global EIDRTOALTID_LOGIN, EIDRTOALTID_PARTYID, EIDRTOALTID_PASSWORD, REGISTRY_KEY, requestPagesize, IDList
-    global eidr_id, alt_id_domain, alt_id_type, alt_id_relation,verbose
+    global eidr_id, alt_id_domain, alt_id_type,verbose
 
     SDK_VERSION = '2.7.1'
     REGISTRY_KEY = 'resolve'
@@ -337,14 +350,22 @@ def main():
     # Create parser and set the custom formatter with adjustable spacing
     parser = argparse.ArgumentParser(formatter_class=CustomHelpFormatter, add_help=False)
     #processes on their own
+    #action: The basic type of action to be taken when this argument is encountered at the command line.
+    #help - A brief description of what the argument does.
+    #required - Whether or not the command-line option may be omitted (optionals only).
+    #dest - The name of the attribute to be added to the object returned by parse_args().
+    #type - The type to which the command-line argument should be converted.
     parser.add_argument('-h', '--help', action='help', help=get_help_message('help'))
+    parser.add_argument('-v', '--verbose', action="store_true", default=False, dest="verbose", help=get_help_message('verbose'))
     parser.add_argument('--version', action='store_true', help=get_help_message('version'))
+    #parser.add_argument('-p', type=int, default=100, dest="pagesize", help=get_help_message('pagesize'))
+    parser.add_argument('-c', '--config', required=False, help=get_help_message('config'))
     parser.add_argument('--showconfig', action='store_true', help=get_help_message('showconfig'))
     
-    parser.add_argument('-c', '--config', required=False, help=get_help_message('config'))
+   
     parser.add_argument('-p', type=int, default=100, dest="pagesize", help=get_help_message('pagesize'))
     #store true merely means True or False just like a boolean flag (not sure if should be include4d on own)
-    parser.add_argument('-v', '--verbose', action="store_true", default=False, dest="verbose", help=get_help_message('verbose'))
+    
     parser.add_argument('-id', '--eidr_id', type=str, help=get_help_message('eidr_id'))
     parser.add_argument('-o', '--output', required=False, help=get_help_message('output'))
     parser.add_argument('--count', type=int, dest="maxCount", help=get_help_message('showcount'))
@@ -360,35 +381,29 @@ def main():
 
 
     args = parser.parse_args()
-    
-
-    if args.version:
-        print(f"EIDR SDK Version: {SDK_VERSION}")
-        sys.exit(1)
-
+    #sys argv holds command line arguments
+    #Only the script name is present, meaning no additional arguments were provided.
+    # needs to be at least one because if the length was zero, it wouldn't exist
     if len(sys.argv) == 1:
         print("No arguments provided. Displaying help options.")
         parser.print_help()
         sys.exit(1)
 
-    if args.eidr_id and not (args.type or args.domain):
-        print("Error: When providing an EIDR ID, you must also provide either a type (--type) or a domain (--domain).")
-        parser.print_help()
+    if args.version:
+        print(f"EIDR SDK Version: {SDK_VERSION}")
         sys.exit(1)
-        write_output_file(args.output, output_data,xml_record)
+    if args.pagesize < 1 or args.pagesize > 100000:
+        print("Error: Page size must be between 1 and 100000.")
+        sys.exit(1)
+    else:
+        requestPagesize = args.pagesize
+
     # Load configuration
     try:
         if args.config:
             config = load_config_from_xml(args.config)
             if verbose:
                 print(f"Loaded config from file: {args.config}")
-            if config and args.showconfig:
-                print("Config loaded from XML file:")
-                print(f"URL: {config.get('URL')}")
-                print(f"Party ID: {config.get('PartyID')}")
-                print(f"Login: {config.get('Login')}")
-                print(f"Page Size: {config.get('Pagesize', requestPagesize)}")
-                return
         else:
             config = {
                 "URL": f"https://resolve.eidr.org/EIDR",
@@ -402,6 +417,20 @@ def main():
         parser.print_help()
         sys.exit(1)
 
+    if config and args.showconfig:
+        print("Config loaded from XML file:")
+        print(f"URL: {config.get('URL')}")
+        print(f"Party ID: {config.get('PartyID')}")
+        print(f"Login: {config.get('Login')}")
+        print(f"Page Size: {config.get('Pagesize', requestPagesize)}")
+
+
+    if args.eidr_id and not (args.type or args.domain):
+        print("Error: When providing an EIDR ID, you must also provide either a type (--type) or a domain (--domain).")
+        parser.print_help()
+        sys.exit(1)
+        write_output_file(args.output, output_data,xml_record)
+    
     # Process input EIDR ID or file
     if args.eidr_id:
         eidr_id = args.eidr_id
@@ -458,7 +487,9 @@ def main():
         setup_logging(args.opLog)
         logging.info(f"Logging initialized. Log file: {args.opLog}")
         logging.info(f"Arguments after parsing: {vars(args)}")
-
+    #11/1/24 check if the max errors has been set
+    # if it's between 1-100 do nothing but if greater than 100 print max errors allowed
+    # sys.exit(1)
     if args.maxErrors != 10:
         print(f"Max errors allowed: {args.maxErrors}")
 
