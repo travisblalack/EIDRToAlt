@@ -97,47 +97,68 @@ def load_config_from_xml(file_path):
 # Add debugging before the request
 
 # This function is responsible for writing the output data to a file
-def write_output_file(output_path, data):
+
+# added an open and close output file function with a global output file
+def open_output_file(output_path):
+    global output_file
     try:
-        with open(output_path, 'a', encoding='utf-8') as f:  # 'a' for append mode
-            f.write(f"EIDR ID: {data['ID']}\n")
-            
-            # Check if AlternateIDs exist and write them
-            if 'AlternateIDs' in data and data['AlternateIDs']:
-                for alt_id in data['AlternateIDs']:
-                    # Get value and type, they should always be present
-                    alt_type = alt_id.get('type', 'N/A') 
-                    alt_value = alt_id.get('value', 'N/A')  # Default to 'N/A' if missing
-                    # Default to 'N/A' if missing
-                    alt_id_relation = alt_id.get('relation','N/A')
-                    
-                    # If the type is Proprietary, we must include the domain
-                    if alt_type == 'Proprietary':
-                        domain = alt_id.get('domain')  # No default here, it MUST exist
-                        if not domain:
-                            raise ValueError(f"Domain missing for Proprietary AlternateID: {alt_value}")
-                        f.write(f" Type: {alt_type}, Alternate ID: {alt_value}, Domain: {domain}, Relation: {alt_id_relation}\n")
-                    else:
-                        # Write other non-Proprietary AlternateIDs
-                        f.write(f"Type: {alt_type}, Alternate ID: {alt_value},  Relation: {alt_id_relation}\n")
-            
-            f.write("\n")  # Add a newline for separation between records
-            
-        print(f"Data successfully written to {output_path}")
+        output_file = open(output_path, 'w', encoding='utf-8')
+        print(f"Output file {output_path} opened successfully.")
     except Exception as e:
-       return
+        print(f"Error opening file: {e}")
+        output_file = None
+
+def write_output_file(data):
+    global output_file
+    if output_file is None:
+        print("Error: Output file is not open.")
+        return
     
-def setup_logging(logfile):
+    try:
+        output_file.write(f"EIDR ID: {data['ID']}\n")
+        
+        # Check if AlternateIDs exist and write them
+        if 'AlternateIDs' in data and data['AlternateIDs']:
+            for alt_id in data['AlternateIDs']:
+                # Get value and type, they should always be present
+                alt_type = alt_id.get('type', 'N/A') 
+                alt_value = alt_id.get('value', 'N/A')
+                alt_id_relation = alt_id.get('relation', 'N/A')
+                
+                # If the type is Proprietary, we must include the domain
+                if alt_type == 'Proprietary':
+                    domain = alt_id.get('domain')
+                    if not domain:
+                        raise ValueError(f"Domain missing for Proprietary AlternateID: {alt_value}")
+                    output_file.write(f"Type: {alt_type}, Alternate ID: {alt_value}, Domain: {domain}, Relation: {alt_id_relation}\n")
+                else:
+                    # Write other non-Proprietary AlternateIDs
+                    output_file.write(f"Type: {alt_type}, Alternate ID: {alt_value}, Relation: {alt_id_relation}\n")
+        
+        output_file.write("\n")  # Add a newline for separation between records
+        print("Data successfully written.")
+    except Exception as e:
+        print(f"Error writing data: {e}")
+
+def close_output_file():
+    global output_file
+    if output_file is not None:
+        output_file.close()
+        print("Output file closed.")
+    
+def setup_logging(logfile=None):
     """
-    Set up logging configuration. Log to the specified file.
+    Set up logging configuration. Log to the specified file or the console if no file is provided.
     """
+    if not logfile:
+            logfile = "default_logfile.log"  # Default log file if no filename is provided
     logging.basicConfig(
-        filename=logfile,          # Log file specified by opLog
-        filemode='a',              # Append to the log file
-        level=logging.INFO,        # Log level (INFO)
+        filename=logfile,
+        filemode='a',
+        level=logging.INFO,
         format='%(asctime)s - %(levelname)s - %(message)s'
     )
-locale.setlocale(locale.LC_ALL, '')
+    logging.info("Logging initialized.")
 
 def makeHeader():
     try:
@@ -158,7 +179,7 @@ AUTH_HEADER = {
     "Content-Type": "application/json"
 }
 def fetch_xml(eidr_id, verbose=False):
-
+    #Tests to see if the id inputted is a valid eidr id of length 34
     if len(eidr_id) != 34:
         print("Invalid EIDR ID")
         return None
@@ -239,8 +260,6 @@ def parse_alternate_ids(root, target_type, verbose=False):
         print(f"No alternate IDs found for type '{target_type}'")
 
     return result
-
-
 
 import os
 import json
@@ -334,7 +353,7 @@ def get_help_message(keyword):
 
 def main():
     global EIDRTOALTID_LOGIN, EIDRTOALTID_PARTYID, EIDRTOALTID_PASSWORD, REGISTRY_KEY, requestPagesize, IDList
-    global eidr_id, alt_id_domain, alt_id_type,verbose
+    global eidr_id, alt_id_domain, alt_id_type,verbose,output_file
 
     SDK_VERSION = '2.7.1'
     REGISTRY_KEY = 'resolve'
@@ -358,7 +377,6 @@ def main():
     parser.add_argument('-h', '--help', action='help', help=get_help_message('help'))
     parser.add_argument('-v', '--verbose', action="store_true", default=False, dest="verbose", help=get_help_message('verbose'))
     parser.add_argument('--version', action='store_true', help=get_help_message('version'))
-    #parser.add_argument('-p', type=int, default=100, dest="pagesize", help=get_help_message('pagesize'))
     parser.add_argument('-c', '--config', required=False, help=get_help_message('config'))
     parser.add_argument('--showconfig', action='store_true', help=get_help_message('showconfig'))
     
@@ -431,6 +449,10 @@ def main():
         sys.exit(1)
         write_output_file(args.output, output_data,xml_record)
     
+    if args.type and args.type not in VALID_ID_TYPES:
+        print(f"Error: Invalid type '{args.type}'. Valid types are: {', '.join(VALID_ID_TYPES)}")
+        sys.exit(1)
+    
     # Process input EIDR ID or file
     if args.eidr_id:
         eidr_id = args.eidr_id
@@ -462,6 +484,13 @@ def main():
 
 
     elif args.input:
+        if not os.path.isfile(args.input):
+            print(f"Error: Input file {args.input} does not exist.")
+        sys.exit(1)
+    elif os.path.getsize(args.input) == 0:
+        print(f"Error: Input file {args.input} is empty.")
+        sys.exit(1)
+
         try:
             with open(args.input, 'r', encoding='utf-8') as f:
                 eidr_ids = f.read().splitlines()
@@ -485,16 +514,22 @@ def main():
 
     if args.opLog:
         setup_logging(args.opLog)
-        logging.info(f"Logging initialized. Log file: {args.opLog}")
-        logging.info(f"Arguments after parsing: {vars(args)}")
-    #11/1/24 check if the max errors has been set
+    else:
+        setup_logging()
+    logging.info(f"Arguments after parsing: {vars(args)}")
     # if it's between 1-100 do nothing but if greater than 100 print max errors allowed
     # sys.exit(1)
-    if args.maxErrors != 10:
-        print(f"Max errors allowed: {args.maxErrors}")
+    if args.maxErrors < 1 or args.maxErrors > 100:
+        print("Error: Max errors must be between 1 and 100.")
+        sys.exit(1)
+    #is not none checks for zero otherwise the valid numbers are 1-100000
+    if args.maxCount is not None:
+        if args.maxCount < 1 or args.maxCount > 100000:
+            print("Error: maxCount must be between 1 and 100000.")
+            sys.exit(1)
+        else:
+            print(f"Processing up to {args.maxCount} EIDR records.")
 
-    if args.maxCount:
-        print(f"Processing up to {args.maxCount} EIDR records.")
 
 def write_output(output_file, data):
     """Writes the output data to a specified file, or to the console if no file is provided."""
