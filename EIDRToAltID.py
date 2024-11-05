@@ -388,7 +388,8 @@ def main():
     parser.add_argument('-o', '--output', required=False, help=get_help_message('output'))
     parser.add_argument('--count', type=int, dest="maxCount", help=get_help_message('showcount'))
     parser.add_argument('-x', '--maxerrs', type=int, default=10, dest="maxErrors", help=get_help_message('maxErrors'))
-    parser.add_argument('-l', '--logfile', default=None, dest="opLog", help=get_help_message('logfile'))
+    parser.add_argument('-l', '--logfile', nargs="?", const='default_logfile.log', help=get_help_message('logfile'))
+    parser.add_argument('--opLog', action='store_true', help='Enable operation logging')
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument('-dom', '--domain', required=False, help=get_help_message('domain'))
