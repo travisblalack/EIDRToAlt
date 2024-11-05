@@ -212,8 +212,8 @@ def parse_alternate_ids(root, target_type, verbose=False):
     if id_elem is not None:
         eidr_id = id_elem.text
         # Check if the ID length is valid (should be 34 characters)
-        if len(eidr_id) != 34:
-            print("Invalid EIDR ID")
+        if len(eidr_id) != 34 or eidr_id[0:7]!="10.5240/":
+            print(f"Invalid EIDR ID: {eidr_id}")
             return result  # Return an empty result or handle as needed
         result['ID'] = eidr_id
     else:
@@ -363,7 +363,7 @@ def main():
     VALID_ID_TYPES = [
     "Ad-ID", "AFT", "AMG", "Baseline", "BFI", "cIDF", "CRID", "DOI", "EAN",
     "GRid", "GTIN", "IMDB", "ISAN", "ISRC", "ISTC", "IVA", "Lumire", "MUZE",
-    "Proprietary", "ShortDOI", "SMPTE_UMID", "TRIB", "TVG", "UPC", "URI", "URN", "UUID",
+    "ShortDOI", "SMPTE_UMID", "TRIB", "TVG", "UPC", "URI", "URN", "UUID",
 ]
 
     # Create parser and set the custom formatter with adjustable spacing
@@ -394,7 +394,6 @@ def main():
     group = parser.add_mutually_exclusive_group()
     group.add_argument('-dom', '--domain', required=False, help=get_help_message('domain'))
     group.add_argument('-t', '--type', required=False, help=get_help_message('type'))
-   
     group.add_argument('-i', '--input', required=False, help=get_help_message('input'))
     
 
@@ -407,15 +406,10 @@ def main():
         print("No arguments provided. Displaying help options.")
         parser.print_help()
         sys.exit(1)
-
+    # The help and verbose parameters don't need to be initialized
     if args.version:
         print(f"EIDR SDK Version: {SDK_VERSION}")
         sys.exit(1)
-    if args.pagesize < 1 or args.pagesize > 100000:
-        print("Error: Page size must be between 1 and 100000.")
-        sys.exit(1)
-    else:
-        requestPagesize = args.pagesize
 
     # Load configuration
     try:
@@ -436,24 +430,45 @@ def main():
         parser.print_help()
         sys.exit(1)
 
-    if config and args.showconfig:
+    if  args.showconfig:
         print("Config loaded from XML file:")
         print(f"URL: {config.get('URL')}")
         print(f"Party ID: {config.get('PartyID')}")
         print(f"Login: {config.get('Login')}")
         print(f"Page Size: {config.get('Pagesize', requestPagesize)}")
+    
+    if args.pagesize < 1 or args.pagesize > 100000:
+        print("Error: Page size must be between 1 and 100000.")
+        sys.exit(1)
+    else:
+        requestPagesize = args.pagesize
 
 
-    if args.eidr_id and not (args.type or args.domain):
-        print("Error: When providing an EIDR ID, you must also provide either a type (--type) or a domain (--domain).")
+    if not (args.type or args.domain):
+        print("Error: You must also provide either a type (-t) or a domain (-dom).")
         parser.print_help()
         sys.exit(1)
-        write_output_file(args.output, output_data,xml_record)
     
-    if args.type and args.type not in VALID_ID_TYPES:
-        print(f"Error: Invalid type '{args.type}'. Valid types are: {', '.join(VALID_ID_TYPES)}")
+    if  args.type and args.domain:
+        print("Error: You cannot provide a type and domain.")
+        parser.print_help()
         sys.exit(1)
-    
+
+    if args.type:
+        if args.type in VALID_ID_TYPES:
+            alt_id_type = args.type
+        else:
+            print(f"Error: Invalid type '{args.type}'. Valid types are: {', '.join(VALID_ID_TYPES)}")
+            parser.print_help()
+            sys.exit(1)
+    else:
+        if args.domain.find(".") >= 2 and len(args.domain) >= 5:
+            alt_id_domain = args.domain
+        else:
+            print(f"Error: Invalid domain '{args.domain}'.")
+            parser.print_help()
+            sys.exit(1)
+
     # Process input EIDR ID or file
     if args.eidr_id:
         eidr_id = args.eidr_id
