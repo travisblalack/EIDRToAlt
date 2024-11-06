@@ -153,7 +153,7 @@ def setup_logging(logfile=None):
     Set up logging configuration. Log to the specified file or the console if no file is provided.
     """
     if not logfile:
-            logfile = "default_logfile.log"  # Default log file if no filename is provided
+            logfile = "default_logfile1.log"  # Default log file if no filename is provided
     logging.basicConfig(
         filename=logfile,
         filemode='a',
@@ -490,12 +490,12 @@ def main():
         else:
             if verbose:
                 print(f"Processing up to {args.maxErrors} EIDR errors.")
-    if args.opLog:
-        setup_logging(args.opLog)
-    print(args.opLog)
-    # else:
-    #     setup_logging()
-    logging.info(f"Arguments after parsing: {vars(args)}")
+    if args.logfile:
+        setup_logging(args.logfile)
+        print(f"Logging to: {args.logfile}")
+    else:
+         if args.logfile:
+            logging.info(f"Arguments after parsing: {vars(args)}")
     # if it's between 1-100 do nothing but if greater than 100 print max errors allowed
     # sys.exit(1)
     # Process input EIDR ID or file
