@@ -180,9 +180,9 @@ AUTH_HEADER = {
 }
 def fetch_xml(eidr_id, verbose=False):
     #Tests to see if the id inputted is a valid eidr id of length 34
-    if len(eidr_id) != 34:
-        print("Invalid EIDR ID")
-        return None
+    if len(eidr_id) != 34 or not eidr_id.startswith("10.5240/"):
+       print(f"Invalid EIDR ID: {eidr_id}")
+       return None
     # Construct the EIDR URL using the provided ID
     url = f"https://resolve.eidr.org/EIDR/object/{eidr_id}?type=AlternateID"
     print(f"Constructed URL: {url}")
@@ -212,7 +212,7 @@ def parse_alternate_ids(root, target_type, verbose=False):
     if id_elem is not None:
         eidr_id = id_elem.text
         # Check if the ID length is valid (should be 34 characters)
-        if len(eidr_id) != 34 or eidr_id[0:7]!="10.5240/":
+        if len(eidr_id) != 34 or not eidr_id.startswith("10.5240/"):
             print(f"Invalid EIDR ID: {eidr_id}")
             return result  # Return an empty result or handle as needed
         result['ID'] = eidr_id
@@ -511,6 +511,13 @@ def main():
             with open(args.input, 'r', encoding='utf-8') as f:
                 eidr_ids = f.read().splitlines()
             print(f"Loaded {len(eidr_ids)} EIDR IDs from input file.")
+
+            for eidr_id in eidr_ids:
+                if not (args.type or args.domain):
+                    print("Error: You must provide either a type (-t) or a domain (-dom) when processing an input file.")
+                    parser.print_help()
+                    sys.exit(1)
+
 
             for eidr_id in eidr_ids:
                 xml_record = fetch_xml(eidr_id,args.domain)
