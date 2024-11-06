@@ -103,10 +103,12 @@ def open_output_file(output_path):
     global output_file
     try:
         output_file = open(output_path, 'w', encoding='utf-8')
-        print(f"Output file {output_path} opened successfully.")
+        if verbose:
+            print(f"Output file {output_path} opened successfully.")
     except Exception as e:
         print(f"Error opening file: {e}")
-        output_file = None
+        parser.print_help()
+        sys.exit(1)
 
 def write_output_file(data):
     global output_file
@@ -390,14 +392,12 @@ def main():
     parser.add_argument('-x', '--maxerrs', type=int, default=10, dest="maxErrors", help=get_help_message('maxErrors'))
     parser.add_argument('-l', '--logfile', nargs="?", const='default_logfile.log', help=get_help_message('logfile'))
     parser.add_argument('--opLog', action='store_true', help='Enable operation logging')
+    parser.add_argument('-i', '--input', required=False, help=get_help_message('input'))
 
     group = parser.add_mutually_exclusive_group()
     group.add_argument('-dom', '--domain', required=False, help=get_help_message('domain'))
     group.add_argument('-t', '--type', required=False, help=get_help_message('type'))
-    group.add_argument('-i', '--input', required=False, help=get_help_message('input'))
     
-
-
     args = parser.parse_args()
     #sys argv holds command line arguments
     #Only the script name is present, meaning no additional arguments were provided.
@@ -406,6 +406,7 @@ def main():
         print("No arguments provided. Displaying help options.")
         parser.print_help()
         sys.exit(1)
+    verbose = args.verbose
     # The help and verbose parameters don't need to be initialized
     if args.version:
         print(f"EIDR SDK Version: {SDK_VERSION}")
@@ -469,6 +470,34 @@ def main():
             parser.print_help()
             sys.exit(1)
 
+    if args.output:
+        open_output_file(args.output)
+
+    #is not none checks for zero otherwise the valid numbers are 1-100000
+    if args.maxCount:
+        if args.maxCount < 1 or args.maxCount > 100000:
+            print("Error: maxCount must be between 1 and 100000.")
+            parser.print_help()
+            sys.exit(1)
+        else:
+            if verbose:
+                print(f"Processing up to {args.maxCount} EIDR records.")
+    if args.maxErrors:
+        if args.maxErrors < 1 or args.maxErrors > 100:
+            print("Error: Max errors must be between 1 and 100.")
+            parser.print_help()
+            sys.exit(1)
+        else:
+            if verbose:
+                print(f"Processing up to {args.maxErrors} EIDR errors.")
+    if args.opLog:
+        setup_logging(args.opLog)
+    print(args.opLog)
+    # else:
+    #     setup_logging()
+    logging.info(f"Arguments after parsing: {vars(args)}")
+    # if it's between 1-100 do nothing but if greater than 100 print max errors allowed
+    # sys.exit(1)
     # Process input EIDR ID or file
     if args.eidr_id:
         eidr_id = args.eidr_id
@@ -535,23 +564,6 @@ def main():
     else:
         print("No EIDR ID or input file provided.")
 
-    if args.opLog:
-        setup_logging(args.opLog)
-    else:
-        setup_logging()
-    logging.info(f"Arguments after parsing: {vars(args)}")
-    # if it's between 1-100 do nothing but if greater than 100 print max errors allowed
-    # sys.exit(1)
-    if args.maxErrors < 1 or args.maxErrors > 100:
-        print("Error: Max errors must be between 1 and 100.")
-        sys.exit(1)
-    #is not none checks for zero otherwise the valid numbers are 1-100000
-    if args.maxCount is not None:
-        if args.maxCount < 1 or args.maxCount > 100000:
-            print("Error: maxCount must be between 1 and 100000.")
-            sys.exit(1)
-        else:
-            print(f"Processing up to {args.maxCount} EIDR records.")
 
 
 def write_output(output_file, data):
