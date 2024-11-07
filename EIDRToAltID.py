@@ -102,7 +102,7 @@ def load_config_from_xml(file_path):
 def open_output_file(output_path):
     global output_file
     try:
-        output_file = open(output_path, 'w', encoding='utf-8')
+        output_file = open(output_path, 'a', encoding='utf-8')
         if verbose:
             print(f"Output file {output_path} opened successfully.")
     except Exception as e:
@@ -110,8 +110,7 @@ def open_output_file(output_path):
         parser.print_help()
         sys.exit(1)
 
-def write_output_file(data):
-    global output_file
+def write_output_file(output_file,data):
     if output_file is None:
         print("Error: Output file is not open.")
         return
@@ -141,12 +140,6 @@ def write_output_file(data):
         print("Data successfully written.")
     except Exception as e:
         print(f"Error writing data: {e}")
-
-def close_output_file():
-    global output_file
-    if output_file is not None:
-        output_file.close()
-        print("Output file closed.")
     
 def setup_logging(logfile=None):
     """
@@ -185,6 +178,7 @@ def fetch_xml(eidr_id, verbose=False):
     if len(eidr_id) != 34 or not eidr_id.startswith("10.5240/"):
        print(f"Invalid EIDR ID: {eidr_id}")
        return None
+    
     # Construct the EIDR URL using the provided ID
     url = f"https://resolve.eidr.org/EIDR/object/{eidr_id}?type=AlternateID"
     print(f"Constructed URL: {url}")
@@ -394,7 +388,7 @@ def main():
     parser.add_argument('--opLog', action='store_true', help='Enable operation logging')
     parser.add_argument('-i', '--input', required=False, help=get_help_message('input'))
 
-    group = parser.add_mutually_exclusive_group()
+    group = parser.add_argument_group()
     group.add_argument('-dom', '--domain', required=False, help=get_help_message('domain'))
     group.add_argument('-t', '--type', required=False, help=get_help_message('type'))
     
@@ -454,6 +448,10 @@ def main():
         print("Error: You cannot provide a type and domain.")
         parser.print_help()
         sys.exit(1)
+    if args.input and args.eidr_id:
+        print("Error: You cannot provide an id and input file.")
+        parser.print_help()
+        sys.exit(1)
 
     if args.type:
         if args.type in VALID_ID_TYPES:
@@ -471,7 +469,9 @@ def main():
             sys.exit(1)
 
     if args.output:
-        open_output_file(args.output)
+
+        write_output_file(args.output,data=None)
+        #close_output_file(output_file)
 
     #is not none checks for zero otherwise the valid numbers are 1-100000
     if args.maxCount:
@@ -532,6 +532,7 @@ def main():
         if not os.path.isfile(args.input):
             print(f"Error: Input file {args.input} does not exist.")
         sys.exit(1)
+
     elif os.path.getsize(args.input) == 0:
         print(f"Error: Input file {args.input} is empty.")
         sys.exit(1)
@@ -551,7 +552,8 @@ def main():
             for eidr_id in eidr_ids:
                 xml_record = fetch_xml(eidr_id,args.domain)
                 if xml_record:
-                    output_data = process_alternate_ids(xml_record, domain_filter=args.domain)
+                    output_data = {'ID': eidr_id, 'AlternateIDs': xml_record.get('AlternateIDs', [])}
+                    
                     if args.output:
                         file_mode = 'a' if os.path.exists(args.output) else 'w'
                         with open(args.output, file_mode, encoding='utf-8') as output_file:
