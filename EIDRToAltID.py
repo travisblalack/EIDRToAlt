@@ -102,7 +102,7 @@ def load_config_from_xml(file_path):
 def open_output_file(output_path):
     global output_file
     try:
-        output_file = open(output_path, 'a', encoding='utf-8')
+        output_file = open(output_path, 'r', encoding='utf-8')
         if verbose:
             print(f"Output file {output_path} opened successfully.")
     except Exception as e:
@@ -324,7 +324,43 @@ def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
 
     # Return output_data and output_lines
     return output_data, output_lines
+def process_eidr_ids_from_file(eidr_ids, args, verbose):
+    """Process EIDR IDs from an input file using the same logic as a single EIDR ID."""
+    all_output_data = []
 
+    for eidr_id in eidr_ids:
+        if verbose:
+            print(f"Processing EIDR ID: {eidr_id}")
+        
+        # Determine whether we are processing by type or domain
+        if args.type:
+            alt_id_type = args.type
+            if verbose:
+                print(f"Processing EIDR ID: {eidr_id} with type: {alt_id_type}")
+            xml_record = fetch_xml(eidr_id, alt_id_type)
+        elif args.domain:
+            alt_id_domain = args.domain
+            if verbose:
+                print(f"Processing EIDR ID: {eidr_id} with domain: {alt_id_domain}")
+            xml_record = fetch_xml(eidr_id, "Proprietary")
+        else:
+            print("Error: Please provide either --type or --domain.")
+            #parser.print_help()
+            sys.exit(1)
+
+        if xml_record:
+            # Process the alternate IDs for this EIDR ID
+            processed_data = process_alternate_ids(xml_record, domain_filter=args.domain, verbose=verbose)
+            
+            if processed_data:
+                all_output_data.append(processed_data)
+            else:
+                print(f"No alternate IDs found for EIDR ID {eidr_id}")
+        else:
+            print(f"No valid XML record found for EIDR ID {eidr_id}")
+
+    # Write or print the collected data for all IDs
+    write_output(args.output, all_output_data)
 def get_help_message(keyword):
     messages = {
         'help': 'Show this help message and exit',
@@ -375,23 +411,18 @@ def main():
     parser.add_argument('--version', action='store_true', help=get_help_message('version'))
     parser.add_argument('-c', '--config', required=False, help=get_help_message('config'))
     parser.add_argument('--showconfig', action='store_true', help=get_help_message('showconfig'))
-    
-   
     parser.add_argument('-p', type=int, default=100, dest="pagesize", help=get_help_message('pagesize'))
     #store true merely means True or False just like a boolean flag (not sure if should be include4d on own)
-    
     parser.add_argument('-id', '--eidr_id', type=str, help=get_help_message('eidr_id'))
     parser.add_argument('-o', '--output', required=False, help=get_help_message('output'))
     parser.add_argument('--count', type=int, dest="maxCount", help=get_help_message('showcount'))
     parser.add_argument('-x', '--maxerrs', type=int, default=10, dest="maxErrors", help=get_help_message('maxErrors'))
     parser.add_argument('-l', '--logfile', nargs="?", const='default_logfile.log', help=get_help_message('logfile'))
-    parser.add_argument('--opLog', action='store_true', help='Enable operation logging')
+    # initialize the opLog parameter if it's used or not clean up by next meeting
     parser.add_argument('-i', '--input', required=False, help=get_help_message('input'))
-
     group = parser.add_argument_group()
     group.add_argument('-dom', '--domain', required=False, help=get_help_message('domain'))
     group.add_argument('-t', '--type', required=False, help=get_help_message('type'))
-    
     args = parser.parse_args()
     #sys argv holds command line arguments
     #Only the script name is present, meaning no additional arguments were provided.
@@ -438,8 +469,8 @@ def main():
     else:
         requestPagesize = args.pagesize
 
-
     if not (args.type or args.domain):
+        
         print("Error: You must also provide either a type (-t) or a domain (-dom).")
         parser.print_help()
         sys.exit(1)
@@ -448,11 +479,41 @@ def main():
         print("Error: You cannot provide a type and domain.")
         parser.print_help()
         sys.exit(1)
+
+
     if args.input and args.eidr_id:
         print("Error: You cannot provide an id and input file.")
         parser.print_help()
         sys.exit(1)
 
+    if args.input:
+        if not os.path.isfile(args.input):
+            print(f"Error: Input file {args.input} does not exist.")
+            parser.print_help()
+            sys.exit(1)
+
+        elif os.path.getsize(args.input) == 0:
+            print(f"Error: Input file {args.input} is empty.")
+            
+            parser.print_help()
+            sys.exit(1)
+
+        try:
+            with open(args.input, 'r', encoding='utf-8') as f:
+                eidr_ids = f.read().splitlines()
+            if verbose:
+                print(f"Loaded {len(eidr_ids)} EIDR IDs from input file.")
+            process_eidr_ids_from_file(eidr_ids, args, verbose)
+
+            for eidr_id in eidr_ids:
+                print(eidr_id)
+                # if not (args.type or args.domain):
+                #     print("Error: You must provide either a type (-t) or a domain (-dom) when processing an input file.")
+                #     parser.print_help()
+                #     sys.exit(1)
+        except:
+            #need error when trying to read file
+            sys.exit(1)
     if args.type:
         if args.type in VALID_ID_TYPES:
             alt_id_type = args.type
@@ -467,11 +528,6 @@ def main():
             print(f"Error: Invalid domain '{args.domain}'.")
             parser.print_help()
             sys.exit(1)
-
-    if args.output:
-
-        write_output_file(args.output,data=None)
-        #close_output_file(output_file)
 
     #is not none checks for zero otherwise the valid numbers are 1-100000
     if args.maxCount:
@@ -492,7 +548,8 @@ def main():
                 print(f"Processing up to {args.maxErrors} EIDR errors.")
     if args.logfile:
         setup_logging(args.logfile)
-        print(f"Logging to: {args.logfile}")
+        if verbose:
+            print(f"Logging to: {args.logfile}")
     else:
          if args.logfile:
             logging.info(f"Arguments after parsing: {vars(args)}")
@@ -528,44 +585,22 @@ def main():
             print(f"No valid XML record found for EIDR ID {eidr_id}")
 
 
-    elif args.input:
-        if not os.path.isfile(args.input):
-            print(f"Error: Input file {args.input} does not exist.")
-        sys.exit(1)
-
-    elif os.path.getsize(args.input) == 0:
-        print(f"Error: Input file {args.input} is empty.")
-        sys.exit(1)
-
-        try:
-            with open(args.input, 'r', encoding='utf-8') as f:
-                eidr_ids = f.read().splitlines()
-            print(f"Loaded {len(eidr_ids)} EIDR IDs from input file.")
-
-            for eidr_id in eidr_ids:
-                if not (args.type or args.domain):
-                    print("Error: You must provide either a type (-t) or a domain (-dom) when processing an input file.")
-                    parser.print_help()
-                    sys.exit(1)
-
-
             for eidr_id in eidr_ids:
                 xml_record = fetch_xml(eidr_id,args.domain)
                 if xml_record:
                     output_data = {'ID': eidr_id, 'AlternateIDs': xml_record.get('AlternateIDs', [])}
                     
                     if args.output:
-                        file_mode = 'a' if os.path.exists(args.output) else 'w'
+                        file_mode = 'r' if os.path.exists(args.output) else 'w'
                         with open(args.output, file_mode, encoding='utf-8') as output_file:
                             output_file.write(json.dumps(output_data, indent=4) + '\n')
                     else:
                         print(f"XML Record for EIDR ID {eidr_id}:\n{xml_record}:\n{json.dumps(output_data, indent=4)}")
-        except FileNotFoundError:
-            print(f"Input file {args.input} not found.")
-            sys.exit(1)
+                if FileNotFoundError:
+                    print(f"Input file {args.input} not found.")
+                    sys.exit(1)
     else:
         print("No EIDR ID or input file provided.")
-
 
 
 def write_output(output_file, data):
