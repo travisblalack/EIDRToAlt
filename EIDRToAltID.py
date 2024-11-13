@@ -264,6 +264,8 @@ def parse_alternate_ids(root, target_type, verbose=False):
 import os
 import json
 
+import re
+
 def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
     output_data = {
         "ID": xml_record.get('ID'),
@@ -274,6 +276,10 @@ def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
     count = 0  # Initialize the count
     domain_found = False  # Flag to check if domain is found in any AlternateID
 
+    # Normalize domain_filter by removing any trailing period or spaces
+    if domain_filter:
+        domain_filter = domain_filter.rstrip('.')
+
     # Process each AlternateID
     for alt_id in xml_record.get('AlternateIDs', []):
         alt_type = alt_id.get('type', 'N/A')
@@ -281,8 +287,13 @@ def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
         domain = alt_id.get('domain', 'N/A')
         alt_relation = alt_id.get('relation')  # None if no relation is present
         
+        # Normalize domain by removing any trailing period or spaces
+        # This is here because if the extension was similiar or blank (eg wikidata.or or wikidata.) the domain would still process
+        # because it was similiar enough to.
+        domain_normalized = domain.rstrip('.')
+
         # If a domain filter is specified, skip alternate IDs that don't match the filter
-        if domain_filter and domain_filter not in domain:
+        if domain_filter and domain_filter != domain_normalized:
             continue
         
         # Set type to "Proprietary" if domain filter is provided and matches
@@ -326,7 +337,7 @@ def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
             print(string_format)
 
         # If domain filter is found in the domain attribute, set the flag
-        if domain_filter and domain_filter in domain:
+        if domain_filter and domain_normalized == domain_filter:
             domain_found = True
 
     # Check if the domain filter was found at all, and print an error if it wasn't
@@ -339,10 +350,6 @@ def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
     # Return output_data and output_lines
     return output_data, output_lines
 
-    
-
-    # Return output_data and output_lines
-    return output_data, output_lines
 def process_eidr_ids_from_file(eidr_ids, args, verbose):
     """Process EIDR IDs from an input file using the same logic as a single EIDR ID."""
     all_output_data = []
@@ -600,8 +607,10 @@ def main():
                     print(f"Successfully found record for EIDR ID {eidr_id}")
         else:
             print(f"No valid XML record found for EIDR ID {eidr_id}")
+            parser.print_help()
+            sys.exit(1)
 
-            print(eidr_id)
+            
             for eidr_id in eidr_ids:
                 xml_record = fetch_xml(eidr_id,args.domain)
                 if xml_record:
