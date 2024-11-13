@@ -264,8 +264,7 @@ def parse_alternate_ids(root, target_type, verbose=False):
 import os
 import json
 
-import re
-
+#This processes the eidr id
 def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
     output_data = {
         "ID": xml_record.get('ID'),
@@ -349,7 +348,7 @@ def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
     
     # Return output_data and output_lines
     return output_data, output_lines
-
+# This processes the eidr ids from an input file
 def process_eidr_ids_from_file(eidr_ids, args, verbose):
     """Process EIDR IDs from an input file using the same logic as a single EIDR ID."""
     all_output_data = []
@@ -370,8 +369,6 @@ def process_eidr_ids_from_file(eidr_ids, args, verbose):
                 print(f"Processing EIDR ID: {eidr_id} with domain: {alt_id_domain}")
             xml_record = fetch_xml(eidr_id, "Proprietary")
         else:
-            #print("Error: Please provide either --type or --domain.")
-            #parser.print_help()
             sys.exit(1)
 
         if xml_record:
@@ -510,6 +507,31 @@ def main():
         print("Error: You cannot provide an id and input file.")
         parser.print_help()
         sys.exit(1)
+        #is not none checks for zero otherwise the valid numbers are 1-100000
+    if args.maxCount:
+        if args.maxCount < 1 or args.maxCount > 100000:
+            print("Error: maxCount must be between 1 and 100000.")
+            parser.print_help()
+            sys.exit(1)
+        else:
+            if verbose:
+                print(f"Processing up to {args.maxCount} EIDR records.")
+            #counts the max allowed errors
+    if args.maxErrors:
+        if args.maxErrors < 1 or args.maxErrors > 100:
+            print("Error: Max errors must be between 1 and 100.")
+            parser.print_help()
+            sys.exit(1)
+        else:
+            if verbose:
+                print(f"Processing up to {args.maxErrors} EIDR errors.")
+        if args.logfile:
+            setup_logging(args.logfile)
+        if verbose:
+            print(f"Logging to: {args.logfile}")
+    else:
+         if args.logfile:
+            logging.info(f"Arguments after parsing: {vars(args)}")
 
     if args.input:
         if not os.path.isfile(args.input):
@@ -521,7 +543,7 @@ def main():
             print(f"Error: Input file {args.input} is empty.")
             parser.print_help()
             sys.exit(1)
-
+        #This reads the file
         try:
             with open(args.input, 'r', encoding='utf-8') as f:
                 eidr_ids = f.read().splitlines()
@@ -530,11 +552,10 @@ def main():
             process_eidr_ids_from_file(eidr_ids, args, verbose)
 
             for eidr_id in eidr_ids:
-                print(eidr_id)
-                # if not (args.type or args.domain):
-                #     print("Error: You must provide either a type (-t) or a domain (-dom) when processing an input file.")
-                #     parser.print_help()
-                #     sys.exit(1)
+                 if not (args.type or args.domain):
+                    print("Error: You must provide either a type (-t) or a domain (-dom) when processing an input file.")
+                    parser.print_help()
+                    sys.exit(1)
         except:
             #need error when trying to read file
             sys.exit(1)
@@ -553,30 +574,7 @@ def main():
             parser.print_help()
             sys.exit(1)
 
-    #is not none checks for zero otherwise the valid numbers are 1-100000
-    if args.maxCount:
-        if args.maxCount < 1 or args.maxCount > 100000:
-            print("Error: maxCount must be between 1 and 100000.")
-            parser.print_help()
-            sys.exit(1)
-        else:
-            if verbose:
-                print(f"Processing up to {args.maxCount} EIDR records.")
-    if args.maxErrors:
-        if args.maxErrors < 1 or args.maxErrors > 100:
-            print("Error: Max errors must be between 1 and 100.")
-            parser.print_help()
-            sys.exit(1)
-        else:
-            if verbose:
-                print(f"Processing up to {args.maxErrors} EIDR errors.")
-    if args.logfile:
-        setup_logging(args.logfile)
-        if verbose:
-            print(f"Logging to: {args.logfile}")
-    else:
-         if args.logfile:
-            logging.info(f"Arguments after parsing: {vars(args)}")
+    
     # if it's between 1-100 do nothing but if greater than 100 print max errors allowed
     # sys.exit(1)
     # Process input EIDR ID or file
