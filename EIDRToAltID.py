@@ -218,6 +218,7 @@ def parse_alternate_ids(root, target_type, verbose=False):
 
     # Initialize a list to store alternate IDs
     result['AlternateIDs'] = []
+    domain_found = False  # Flag to track if any domain attribute is found
 
     # Iterate over AlternateID elements
     for alt_id in root.findall('{http://www.eidr.org/schema}AlternateID'):
@@ -235,7 +236,7 @@ def parse_alternate_ids(root, target_type, verbose=False):
         alt_id_domain = alt_id.attrib.get('domain')
         if alt_id_domain:
             alt_id_info['domain'] = alt_id_domain
-
+            domain_found = True  # Flag to track if any domain attribute is found
         # Add 'relation' only if it exists
         alt_id_relation = alt_id.attrib.get('relation')
         if alt_id_relation:
@@ -251,6 +252,9 @@ def parse_alternate_ids(root, target_type, verbose=False):
             relation_text = f", Relation: {alt_id_info['relation']}" if 'relation' in alt_id_info else ""
             print(f"Processing Alternate ID: {alt_id_info['value']} with type {alt_id_info['type']}{domain_text}{relation_text}")
 
+
+    if not domain_found:
+        print(f"No domain attributes found in Alternate IDs for type '{target_type}'.")
     # If no alternate IDs match the target type, return an empty list
     if not result['AlternateIDs']:
         print(f"No alternate IDs found for type '{target_type}'")
@@ -268,7 +272,9 @@ def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
 
     output_lines = []  # For the string output
     count = 0  # Initialize the count
+    domain_found = False  # Flag to check if domain is found in any AlternateID
 
+    # Process each AlternateID
     for alt_id in xml_record.get('AlternateIDs', []):
         alt_type = alt_id.get('type', 'N/A')
         alt_value = alt_id.get('value', 'N/A')
@@ -319,8 +325,21 @@ def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
         if verbose:
             print(string_format)
 
+        # If domain filter is found in the domain attribute, set the flag
+        if domain_filter and domain_filter in domain:
+            domain_found = True
+
+    # Check if the domain filter was found at all, and print an error if it wasn't
+    if domain_filter and not domain_found:
+        print(f"The domain filter '{domain_filter}' was not found in any Alternate ID domains.")
+
     # Print the number of alternate IDs processed in the terminal (not in the output)
     print(f"Number of Alternate IDs processed: {count}")
+    
+    # Return output_data and output_lines
+    return output_data, output_lines
+
+    
 
     # Return output_data and output_lines
     return output_data, output_lines
@@ -329,9 +348,9 @@ def process_eidr_ids_from_file(eidr_ids, args, verbose):
     all_output_data = []
 
     for eidr_id in eidr_ids:
-        if verbose:
-            print(f"Processing EIDR ID: {eidr_id}")
-        
+        if not eidr_id or len(eidr_id) != 34 or not eidr_id.startswith("10.5240/"):
+            print(f"Invalid EIDR ID: {eidr_id}")
+            continue
         # Determine whether we are processing by type or domain
         if args.type:
             alt_id_type = args.type
@@ -344,7 +363,7 @@ def process_eidr_ids_from_file(eidr_ids, args, verbose):
                 print(f"Processing EIDR ID: {eidr_id} with domain: {alt_id_domain}")
             xml_record = fetch_xml(eidr_id, "Proprietary")
         else:
-            print("Error: Please provide either --type or --domain.")
+            #print("Error: Please provide either --type or --domain.")
             #parser.print_help()
             sys.exit(1)
 
@@ -385,7 +404,6 @@ def get_help_message(keyword):
 
 def main():
     global EIDRTOALTID_LOGIN, EIDRTOALTID_PARTYID, EIDRTOALTID_PASSWORD, REGISTRY_KEY, requestPagesize, IDList
-    global eidr_id, alt_id_domain, alt_id_type,verbose,output_file
 
     SDK_VERSION = '2.7.1'
     REGISTRY_KEY = 'resolve'
@@ -494,7 +512,6 @@ def main():
 
         elif os.path.getsize(args.input) == 0:
             print(f"Error: Input file {args.input} is empty.")
-            
             parser.print_help()
             sys.exit(1)
 
@@ -584,7 +601,7 @@ def main():
         else:
             print(f"No valid XML record found for EIDR ID {eidr_id}")
 
-
+            print(eidr_id)
             for eidr_id in eidr_ids:
                 xml_record = fetch_xml(eidr_id,args.domain)
                 if xml_record:
@@ -599,8 +616,7 @@ def main():
                 if FileNotFoundError:
                     print(f"Input file {args.input} not found.")
                     sys.exit(1)
-    else:
-        print("No EIDR ID or input file provided.")
+                    
 
 
 def write_output(output_file, data):
