@@ -173,15 +173,14 @@ AUTH_HEADER = {
     "Authorization": makeHeader(),
     "Content-Type": "application/json"
 }
-def fetch_xml(eidr_id, verbose=False):
-    #Tests to see if the id inputted is a valid eidr id of length 34
-    if len(eidr_id) != 34 or not eidr_id.startswith("10.5240/"):
-       print(f"Invalid EIDR ID: {eidr_id}")
-       return None
-    
+def fetch_xml(eidr_id,verbose=False):
+
     # Construct the EIDR URL using the provided ID
+    # 11/13/24 need to fix the fact registry is hard coded
+    
     url = f"https://resolve.eidr.org/EIDR/object/{eidr_id}?type=AlternateID"
-    print(f"Constructed URL: {url}")
+    if verbose:
+        print(f"Constructed URL: {url}")
 
     # Make a request to fetch the XML data with the global AUTH_HEADER
     response = requests.get(url, headers=AUTH_HEADER)
@@ -191,10 +190,9 @@ def fetch_xml(eidr_id, verbose=False):
         # Parse the XML content
         xml_data = response.text
         root = ET.fromstring(xml_data)
-        
+        result = parse_alternate_ids(root,verbose)
         # Parse and return alternate ID information
-        alt_id = parse_alternate_ids(root, verbose)
-        return alt_id
+        return result
     else:
         print(f"Failed to fetch XML for {eidr_id}, Status Code: {response.status_code}, Response content: {response.text}")
         return None
@@ -265,7 +263,7 @@ import os
 import json
 
 #This processes the eidr id
-def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
+def process_alternate_ids(xml_record, verbose=False):
     output_data = {
         "ID": xml_record.get('ID'),
         "AlternateIDs": []
@@ -275,9 +273,6 @@ def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
     count = 0  # Initialize the count
     domain_found = False  # Flag to check if domain is found in any AlternateID
 
-    # Normalize domain_filter by removing any trailing period or spaces
-    if domain_filter:
-        domain_filter = domain_filter.rstrip('.')
 
     # Process each AlternateID
     for alt_id in xml_record.get('AlternateIDs', []):
@@ -286,19 +281,6 @@ def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
         domain = alt_id.get('domain', 'N/A')
         alt_relation = alt_id.get('relation')  # None if no relation is present
         
-        # Normalize domain by removing any trailing period or spaces
-        # This is here because if the extension was similiar or blank (eg wikidata.or or wikidata.) the domain would still process
-        # because it was similiar enough to.
-        domain_normalized = domain.rstrip('.')
-
-        # If a domain filter is specified, skip alternate IDs that don't match the filter
-        if domain_filter and domain_filter != domain_normalized:
-            continue
-        
-        # Set type to "Proprietary" if domain filter is provided and matches
-        if domain_filter:
-            alt_type = "Proprietary"
-
         # Build the formatted ID for JSON-like output
         formatted_id = {
             "type": alt_type,
@@ -336,12 +318,6 @@ def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
             print(string_format)
 
         # If domain filter is found in the domain attribute, set the flag
-        if domain_filter and domain_normalized == domain_filter:
-            domain_found = True
-
-    # Check if the domain filter was found at all, and print an error if it wasn't
-    if domain_filter and not domain_found:
-        print(f"The domain filter '{domain_filter}' was not found in any Alternate ID domains.")
 
     # Print the number of alternate IDs processed in the terminal (not in the output)
     print(f"Number of Alternate IDs processed: {count}")
@@ -349,7 +325,7 @@ def process_alternate_ids(xml_record, domain_filter=None, verbose=False):
     # Return output_data and output_lines
     return output_data, output_lines
 # This processes the eidr ids from an input file
-def process_eidr_ids_from_file(eidr_ids, args, verbose):
+def process_eidr_ids(eidr_ids, verbose):
     """Process EIDR IDs from an input file using the same logic as a single EIDR ID."""
     all_output_data = []
 
@@ -358,22 +334,20 @@ def process_eidr_ids_from_file(eidr_ids, args, verbose):
             print(f"Invalid EIDR ID: {eidr_id}")
             continue
         # Determine whether we are processing by type or domain
-        if args.type:
-            alt_id_type = args.type
+        if alt_id_type:
             if verbose:
                 print(f"Processing EIDR ID: {eidr_id} with type: {alt_id_type}")
-            xml_record = fetch_xml(eidr_id, alt_id_type)
-        elif args.domain:
-            alt_id_domain = args.domain
+            xml_record = fetch_xml(eidr_id,alt_id_type)
+        elif alt_id_domain:
             if verbose:
                 print(f"Processing EIDR ID: {eidr_id} with domain: {alt_id_domain}")
-            xml_record = fetch_xml(eidr_id, "Proprietary")
+            xml_record = fetch_xml(eidr_id,alt_id_domain)
         else:
             sys.exit(1)
-
+            xml_record = fetch_xml(eidr_id,verbose)
         if xml_record:
             # Process the alternate IDs for this EIDR ID
-            processed_data = process_alternate_ids(xml_record, domain_filter=args.domain, verbose=verbose)
+            processed_data = process_alternate_ids(xml_record, verbose=verbose)
             
             if processed_data:
                 all_output_data.append(processed_data)
@@ -383,7 +357,8 @@ def process_eidr_ids_from_file(eidr_ids, args, verbose):
             print(f"No valid XML record found for EIDR ID {eidr_id}")
 
     # Write or print the collected data for all IDs
-    write_output(args.output, all_output_data)
+    return all_output_data
+
 def get_help_message(keyword):
     messages = {
         'help': 'Show this help message and exit',
@@ -408,7 +383,9 @@ def get_help_message(keyword):
 
 def main():
     global EIDRTOALTID_LOGIN, EIDRTOALTID_PARTYID, EIDRTOALTID_PASSWORD, REGISTRY_KEY, requestPagesize, IDList
-
+    global alt_id_type,alt_id_domain
+ 
+    
     SDK_VERSION = '2.7.1'
     REGISTRY_KEY = 'resolve'
     requestPagesize = 100
@@ -491,9 +468,24 @@ def main():
     else:
         requestPagesize = args.pagesize
 
-    if not (args.type or args.domain):
-        
-        print("Error: You must also provide either a type (-t) or a domain (-dom).")
+    if args.type:
+        if args.type in VALID_ID_TYPES:
+            alt_id_type = args.type
+        else:
+            print(f"Error: Invalid type '{args.type}'. Valid types are: {', '.join(VALID_ID_TYPES)}")
+            parser.print_help()
+            sys.exit(1)
+
+    elif args.domain:
+        if args.domain.find(".") >= 2 and len(args.domain) >= 5:
+            alt_id_domain = args.domain
+        else:
+            print(f"Error: Invalid domain '{args.domain}'.")
+            parser.print_help()
+            sys.exit(1)
+
+    if not (args.type or args.domain):      
+        print("Error: You must provide either a type (-t) or a domain (-dom).")
         parser.print_help()
         sys.exit(1)
     
@@ -501,7 +493,6 @@ def main():
         print("Error: You cannot provide a type and domain.")
         parser.print_help()
         sys.exit(1)
-
 
     if args.input and args.eidr_id:
         print("Error: You cannot provide an id and input file.")
@@ -533,6 +524,10 @@ def main():
          if args.logfile:
             logging.info(f"Arguments after parsing: {vars(args)}")
 
+            eidr_ids = []
+
+    # Check if a single EIDR ID is provided
+
     if args.input:
         if not os.path.isfile(args.input):
             print(f"Error: Input file {args.input} does not exist.")
@@ -549,36 +544,16 @@ def main():
                 eidr_ids = f.read().splitlines()
             if verbose:
                 print(f"Loaded {len(eidr_ids)} EIDR IDs from input file.")
-            process_eidr_ids_from_file(eidr_ids, args, verbose)
-
-            for eidr_id in eidr_ids:
-                 if not (args.type or args.domain):
-                    print("Error: You must provide either a type (-t) or a domain (-dom) when processing an input file.")
-                    parser.print_help()
-                    sys.exit(1)
+                
+            process_eidr_ids(eidr_ids,verbose)
+            
         except:
             #need error when trying to read file
             sys.exit(1)
-    if args.type:
-        if args.type in VALID_ID_TYPES:
-            alt_id_type = args.type
-        else:
-            print(f"Error: Invalid type '{args.type}'. Valid types are: {', '.join(VALID_ID_TYPES)}")
-            parser.print_help()
-            sys.exit(1)
     else:
-        if args.domain.find(".") >= 2 and len(args.domain) >= 5:
-            alt_id_domain = args.domain
-        else:
-            print(f"Error: Invalid domain '{args.domain}'.")
-            parser.print_help()
-            sys.exit(1)
-
-    
-    # if it's between 1-100 do nothing but if greater than 100 print max errors allowed
-    # sys.exit(1)
-    # Process input EIDR ID or file
-    if args.eidr_id:
+ 
+        eidr_ids = args.eidr_id
+    if eidr_ids:
         eidr_id = args.eidr_id
         if args.type:
             alt_id_type = args.type
@@ -594,8 +569,10 @@ def main():
             print("Error: Please provide either --type or --domain.")
             parser.print_help()
             sys.exit(1)
+
+
         if xml_record:
-            output_data = process_alternate_ids(xml_record, domain_filter=args.domain,verbose=False)
+            output_data = process_alternate_ids(xml_record,verbose=False)
             if args.output:
                 write_output(args.output, output_data)
             else:
