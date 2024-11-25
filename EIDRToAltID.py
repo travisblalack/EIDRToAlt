@@ -146,7 +146,7 @@ def setup_logging(logfile=None):
     Set up logging configuration. Log to the specified file or the console if no file is provided.
     """
     if not logfile:
-            logfile = "default_logfile1.log"  # Default log file if no filename is provided
+            logfile = "default_logfile.log"  # Default log file if no filename is provided
     logging.basicConfig(
         filename=logfile,
         filemode='a',
@@ -196,7 +196,7 @@ def fetch_xml(eidr_id,verbose=False):
     else:
         print(f"Failed to fetch XML for {eidr_id}, Status Code: {response.status_code}, Response content: {response.text}")
         return None
-
+#This processes a single ID
 def parse_alternate_ids(root, target_type, verbose=False):
     # This function writes to the output
     result = {}
@@ -249,6 +249,7 @@ def parse_alternate_ids(root, target_type, verbose=False):
             domain_text = f", Domain: {alt_id_info['domain']}" if 'domain' in alt_id_info else ""
             relation_text = f", Relation: {alt_id_info['relation']}" if 'relation' in alt_id_info else ""
             print(f"Processing Alternate ID: {alt_id_info['value']} with type {alt_id_info['type']}{domain_text}{relation_text}")
+            
 
 
     if not domain_found:
@@ -262,7 +263,7 @@ def parse_alternate_ids(root, target_type, verbose=False):
 import os
 import json
 
-#This processes the eidr id
+#This processes the eidr id from an input file
 def process_alternate_ids(xml_record, verbose=False):
     output_data = {
         "ID": xml_record.get('ID'),
@@ -324,7 +325,7 @@ def process_alternate_ids(xml_record, verbose=False):
     
     # Return output_data and output_lines
     return output_data, output_lines
-# This processes the eidr ids from an input file
+# This formats the eidr ids from an input file
 def process_eidr_ids(eidr_ids, verbose):
     """Process EIDR IDs from an input file using the same logic as a single EIDR ID."""
     all_output_data = []
@@ -358,6 +359,16 @@ def process_eidr_ids(eidr_ids, verbose):
 
     # Write or print the collected data for all IDs
     return all_output_data
+def write_output(output_file, data):
+    """Writes the output data to a specified file, or to the console if no file is provided."""
+    output = json.dumps(data, indent=4)
+    
+    if output_file:
+        with open(output_file, 'w', encoding='utf-8') as f:
+            f.write(output + '\n')
+        print(f"Output saved to {output_file}")
+    else:
+        print("Output:\n", output)
 
 def get_help_message(keyword):
     messages = {
@@ -528,91 +539,67 @@ def main():
 
     # Check if a single EIDR ID is provided
 
+    output_data = []  # Initialize output_data to ensure it's always defined
+
     if args.input:
+        # Validate input file
         if not os.path.isfile(args.input):
             print(f"Error: Input file {args.input} does not exist.")
-            parser.print_help()
             sys.exit(1)
-
         elif os.path.getsize(args.input) == 0:
             print(f"Error: Input file {args.input} is empty.")
-            parser.print_help()
             sys.exit(1)
-        #This reads the file
+
+        # Read and process EIDR IDs from file
         try:
             with open(args.input, 'r', encoding='utf-8') as f:
                 eidr_ids = f.read().splitlines()
             if verbose:
                 print(f"Loaded {len(eidr_ids)} EIDR IDs from input file.")
-                
-            process_eidr_ids(eidr_ids,verbose)
-            
-        except:
-            #need error when trying to read file
+            output_data = process_eidr_ids(eidr_ids, verbose)
+        except Exception as e:
+            print(f"Error reading input file: {e}")
             sys.exit(1)
-    else:
- 
-        eidr_ids = args.eidr_id
-    if eidr_ids:
+    elif args.eidr_id:
+        # Process single EIDR ID
         eidr_id = args.eidr_id
+        if verbose:
+            print(f"Processing single EIDR ID: {eidr_id}")
+
+        # Validate and fetch XML data for the ID
+        if not eidr_id.startswith("10.5240/") or len(eidr_id) != 34:
+            print(f"Invalid EIDR ID: {eidr_id}")
+            sys.exit(1)
+
         if args.type:
             alt_id_type = args.type
-            if verbose:
-                print(f"Processing EIDR ID: {eidr_id} with type: {alt_id_type}")
             xml_record = fetch_xml(eidr_id, alt_id_type)
         elif args.domain:
             alt_id_domain = args.domain
-            if verbose:
-                print(f"Processing EIDR ID: {eidr_id} with domain: {alt_id_domain}")
             xml_record = fetch_xml(eidr_id, "Proprietary")
         else:
             print("Error: Please provide either --type or --domain.")
-            parser.print_help()
             sys.exit(1)
 
-
+        # Process XML and collect data
         if xml_record:
-            output_data = process_alternate_ids(xml_record,verbose=False)
-            if args.output:
-                write_output(args.output, output_data)
+            processed_data = process_alternate_ids(xml_record, verbose=verbose)
+            if processed_data:
+                output_data = [processed_data]  # Wrap in list for consistency
             else:
-                if verbose:
-                    print(f"XML Record for EIDR ID {eidr_id}:\n{xml_record}")
-                else:
-                    print(f"Successfully found record for EIDR ID {eidr_id}")
+                print(f"No alternate IDs found for EIDR ID {eidr_id}")
+                sys.exit(1)
         else:
             print(f"No valid XML record found for EIDR ID {eidr_id}")
-            parser.print_help()
             sys.exit(1)
-
-            
-            for eidr_id in eidr_ids:
-                xml_record = fetch_xml(eidr_id,args.domain)
-                if xml_record:
-                    output_data = {'ID': eidr_id, 'AlternateIDs': xml_record.get('AlternateIDs', [])}
-                    
-                    if args.output:
-                        file_mode = 'r' if os.path.exists(args.output) else 'w'
-                        with open(args.output, file_mode, encoding='utf-8') as output_file:
-                            output_file.write(json.dumps(output_data, indent=4) + '\n')
-                    else:
-                        print(f"XML Record for EIDR ID {eidr_id}:\n{xml_record}:\n{json.dumps(output_data, indent=4)}")
-                if FileNotFoundError:
-                    print(f"Input file {args.input} not found.")
-                    sys.exit(1)
-                    
-
-
-def write_output(output_file, data):
-    """Writes the output data to a specified file, or to the console if no file is provided."""
-    output = json.dumps(data, indent=4)
-    
-    if output_file:
-        with open(output_file, 'w', encoding='utf-8') as f:
-            f.write(output + '\n')
-        print(f"Output saved to {output_file}")
     else:
-        print("Output:\n", output)
+        print("Error: No input file or single EIDR ID provided.")
+        sys.exit(1)
+
+    # Write output data
+    write_output(args.output, output_data)
+
+
     
 if __name__ == "__main__":
     main()
