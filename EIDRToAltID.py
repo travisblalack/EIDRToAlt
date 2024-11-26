@@ -63,10 +63,39 @@ VALID_ID_TYPES = [
 ]
 
 class CustomHelpFormatter(argparse.HelpFormatter):
+        
+        """
+    A custom help formatter for argparse that adjusts the spacing for help messages.
+
+    This class overrides the default formatting of argparse to add horizontal spacing
+    between arguments and their help descriptions for better readability.
+
+    Methods:
+        _format_action(action):
+            Formats the action string by adding horizontal spacing.
+    """
+
         def __init__(self, *args, **kwargs):
+            """
+            Initializes the CustomHelpFormatter instance with any provided arguments.
+            
+
+            Args:
+                *args: Positional arguments passed to argparse.HelpFormatter.
+                **kwargs: Keyword arguments passed to argparse.HelpFormatter.
+            """
             super().__init__(*args, **kwargs)
 
         def _format_action(self, action):
+            """
+        Formats an action by adding horizontal spacing to its help message.
+
+        Args:
+            action (argparse.Action): The argparse action being formatted.
+
+        Returns:
+            str: The formatted action string with additional spacing.
+        """
         # Get the default formatted action
             action_str = super()._format_action(action)
 
@@ -80,6 +109,20 @@ class CustomHelpFormatter(argparse.HelpFormatter):
 #used to load values from a config file
 
 def load_config_from_xml(file_path):
+        """
+    Loads configuration values from an XML file.
+
+    Parses the XML file to extract configuration settings such as URL, PartyID,
+    Login, Password, and Pagesize. Missing elements are returned as None.
+
+    Args:
+        file_path (str): The path to the XML configuration file.
+
+    Returns:
+        dict: A dictionary containing the extracted configuration values.
+            Keys: 'URL', 'PartyID', 'Login', 'Password', 'Pagesize'
+            Values: Corresponding values or None if the element is missing.
+    """
         tree = ET.parse(file_path)
         root = tree.getroot()
 
@@ -100,6 +143,18 @@ def load_config_from_xml(file_path):
 
 # added an open and close output file function with a global output file
 def open_output_file(output_path):
+    """
+    Opens an output file for writing.
+
+    Sets a global `output_file` variable and opens the specified file in write mode.
+    Displays a success message if verbose mode is enabled. Exits the program on failure.
+
+    Args:
+        output_path (str): The path to the output file.
+
+    Raises:
+        SystemExit: If the file cannot be opened.
+    """
     global output_file
     try:
         output_file = open(output_path, 'r', encoding='utf-8')
@@ -110,40 +165,60 @@ def open_output_file(output_path):
         parser.print_help()
         sys.exit(1)
 
-def write_output_file(output_file,data):
+def write_output_file(output_file, data):
+    """
+    Writes data to the output file in a formatted structure.
+
+    Writes the EIDR ID and its associated Alternate IDs to the output file.
+    Handles validation and formatting for Proprietary IDs requiring a domain.
+
+    Args:
+        output_file (file): The file object to write data to.
+        data (dict): A dictionary containing the EIDR ID and Alternate IDs.
+
+    Raises:
+        ValueError: If a Proprietary Alternate ID is missing a domain.
+        Exception: If any error occurs during writing.
+    """
     if output_file is None:
         print("Error: Output file is not open.")
         return
     
     try:
         output_file.write(f"EIDR ID: {data['ID']}\n")
-        
+
         # Check if AlternateIDs exist and write them
         if 'AlternateIDs' in data and data['AlternateIDs']:
             for alt_id in data['AlternateIDs']:
-                # Get value and type, they should always be present
-                alt_type = alt_id.get('type', 'N/A') 
+                alt_type = alt_id.get('type', 'N/A')
                 alt_value = alt_id.get('value', 'N/A')
                 alt_id_relation = alt_id.get('relation', 'N/A')
-                
-                # If the type is Proprietary, we must include the domain
+
                 if alt_type == 'Proprietary':
                     domain = alt_id.get('domain')
                     if not domain:
                         raise ValueError(f"Domain missing for Proprietary AlternateID: {alt_value}")
                     output_file.write(f"Type: {alt_type}, Alternate ID: {alt_value}, Domain: {domain}, Relation: {alt_id_relation}\n")
                 else:
-                    # Write other non-Proprietary AlternateIDs
                     output_file.write(f"Type: {alt_type}, Alternate ID: {alt_value}, Relation: {alt_id_relation}\n")
-        
+
         output_file.write("\n")  # Add a newline for separation between records
         print("Data successfully written.")
     except Exception as e:
         print(f"Error writing data: {e}")
+
     
 def setup_logging(logfile=None):
     """
-    Set up logging configuration. Log to the specified file or the console if no file is provided.
+    Configures logging for the script.
+
+    Logs messages to the specified log file if provided, otherwise logs to a default file named "default_logfile.log".
+
+    Parameters:
+    logfile (str, optional): The path to the log file. Defaults to None.
+
+    Returns:
+    None
     """
     if not logfile:
             logfile = "default_logfile.log"  # Default log file if no filename is provided
@@ -156,6 +231,17 @@ def setup_logging(logfile=None):
     logging.info("Logging initialized.")
 
 def makeHeader():
+    """
+    Generates an authorization header for API requests.
+
+    Constructs the header using the login credentials, hashed password, and Base64 encoding.
+
+    Returns:
+    str: The authorization header string.
+
+    Raises:
+    Exception: If an error occurs during header construction.
+    """
     try:
         # Generate the hashed password and base64-encoded value
         pwBytes = bytes(EIDRTOALTID_PASSWORD, 'utf-8')
@@ -174,6 +260,18 @@ AUTH_HEADER = {
     "Content-Type": "application/json"
 }
 def fetch_xml(eidr_id,verbose=False):
+    """
+    Fetches XML data for a given EIDR ID from the EIDR registry.
+
+    Constructs the URL based on the EIDR ID and sends an HTTP GET request to retrieve the XML record.
+
+    Parameters:
+    eidr_id (str): The EIDR ID to fetch data for.
+    verbose (bool, optional): Enables verbose logging of the URL and response status. Defaults to False.
+
+    Returns:
+    dict or None: Parsed alternate ID information if successful, or None if the request fails.
+    """
 
     # Construct the EIDR URL using the provided ID
     # 11/13/24 need to fix the fact registry is hard coded
@@ -198,6 +296,19 @@ def fetch_xml(eidr_id,verbose=False):
         return None
 #This processes a single ID
 def parse_alternate_ids(root, target_type, verbose=False):
+    """
+    Parses the AlternateID elements from the given XML root.
+
+    Filters alternate IDs based on the target type and collects metadata such as type, value, domain, and relation.
+
+    Parameters:
+    root (xml.etree.ElementTree.Element): The root element of the XML record.
+    target_type (str): The type of alternate IDs to filter.
+    verbose (bool, optional): Enables verbose logging of alternate ID processing. Defaults to False.
+
+    Returns:
+    dict: Contains the primary EIDR ID and a list of matching alternate IDs.
+    """
     # This function writes to the output
     result = {}
 
@@ -265,6 +376,18 @@ import json
 
 #This processes the eidr id from an input file
 def process_alternate_ids(xml_record, verbose=False):
+    """
+    Processes alternate IDs from an XML record.
+
+    Formats the alternate IDs for both structured data output and string-based output, adding metadata for proprietary types.
+
+    Parameters:
+    xml_record (dict): Contains the EIDR ID and its alternate IDs.
+    verbose (bool, optional): Enables verbose logging of processed alternate IDs. Defaults to False.
+
+    Returns:
+    tuple: A dictionary of structured data and a list of formatted string output.
+    """
     output_data = {
         "ID": xml_record.get('ID'),
         "AlternateIDs": []
@@ -327,7 +450,19 @@ def process_alternate_ids(xml_record, verbose=False):
     return output_data, output_lines
 # This formats the eidr ids from an input file
 def process_eidr_ids(eidr_ids, verbose):
-    """Process EIDR IDs from an input file using the same logic as a single EIDR ID."""
+    
+    """
+    Processes a list of EIDR IDs from an input file.
+
+    Fetches XML data for each ID, validates the IDs, and extracts alternate ID information.
+
+    Parameters:
+    eidr_ids (list of str): A list of EIDR IDs to process.
+    verbose (bool): Enables verbose logging of processing steps.
+
+    Returns:
+    list of dict: Collected data for all valid EIDR IDs.
+    """
     all_output_data = []
 
     for eidr_id in eidr_ids:
@@ -360,7 +495,18 @@ def process_eidr_ids(eidr_ids, verbose):
     # Write or print the collected data for all IDs
     return all_output_data
 def write_output(output_file, data):
-    """Writes the output data to a specified file, or to the console if no file is provided."""
+    """
+    Writes the processed output data to a specified file or the console.
+
+    Formats the data as JSON before writing.
+
+    Parameters:
+    output_file (str or None): The path to the output file. If None, prints to the console.
+    data (list of dict): The data to write.
+
+    Returns:
+    None
+    """
     output = json.dumps(data, indent=4)
     
     if output_file:
@@ -371,6 +517,41 @@ def write_output(output_file, data):
         print("Output:\n", output)
 
 def get_help_message(keyword):
+    """
+    Retrieves a help message corresponding to a specific keyword.
+
+    Looks up a predefined dictionary of help messages and returns the message associated with the provided keyword. 
+    If the keyword does not exist, returns a default message.
+
+    Parameters:
+    keyword (str): The keyword for which to retrieve the help message.
+
+    Returns:
+    str: The help message associated with the keyword, or "No help message available" if the keyword is not found.
+
+    Example:
+    >>> get_help_message('help')
+    'Show this help message and exit'
+
+    Supported Keywords:
+    - 'help': Show this help message and exit
+    - 'version': Print current Tool/SDK version
+    - 'showconfig': Shows current connection credentials
+    - 'eidr_id': Lets a user query a single EIDR ID
+    - 'domain': AltIDs must be in DOMAIN (exclusive with --type)
+    - 'type': AltIDs must be in TYPE (exclusive with --domain)
+    - 'output': Path to the output file
+    - 'config': Path to the XML configuration file
+    - 'pagesize': Number of records to retrieve per round
+    - 'verbose': Display progress and status reporting
+    - 'showcount': Show counts of records processed
+    - 'maxCount': Number of threads to use
+    - 'maxErrors': Maximum number of errors to tolerate before aborting
+    - 'file': File from which to load IDs
+    - 'query': XPath query to select IDs
+    - 'input': Path to the input file containing EIDR IDs
+    - 'logfile': Log file for operation history
+    """
     messages = {
         'help': 'Show this help message and exit',
         'version': 'Print current Tool/SDK version',
@@ -472,7 +653,7 @@ def main():
         print(f"Party ID: {config.get('PartyID')}")
         print(f"Login: {config.get('Login')}")
         print(f"Page Size: {config.get('Pagesize', requestPagesize)}")
-    
+        """Validates command-line arguments and exits with errors if invalid."""
     if args.pagesize < 1 or args.pagesize > 100000:
         print("Error: Page size must be between 1 and 100000.")
         sys.exit(1)
