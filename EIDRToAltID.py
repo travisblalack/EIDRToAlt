@@ -449,8 +449,7 @@ def process_alternate_ids(xml_record, verbose=False):
     # Return output_data and output_lines
     return output_data, output_lines
 # This formats the eidr ids from an input file
-def process_eidr_ids(eidr_ids, verbose):
-    
+def process_eidr_ids(eidr_ids, verbose, alt_id_type=None, alt_id_domain=None):
     """
     Processes a list of EIDR IDs from an input file.
 
@@ -459,6 +458,8 @@ def process_eidr_ids(eidr_ids, verbose):
     Parameters:
     eidr_ids (list of str): A list of EIDR IDs to process.
     verbose (bool): Enables verbose logging of processing steps.
+    alt_id_type (str, optional): The type to filter alternate IDs by.
+    alt_id_domain (str, optional): The domain to filter alternate IDs by.
 
     Returns:
     list of dict: Collected data for all valid EIDR IDs.
@@ -473,14 +474,15 @@ def process_eidr_ids(eidr_ids, verbose):
         if alt_id_type:
             if verbose:
                 print(f"Processing EIDR ID: {eidr_id} with type: {alt_id_type}")
-            xml_record = fetch_xml(eidr_id,alt_id_type)
+            xml_record = fetch_xml(eidr_id, alt_id_type)
         elif alt_id_domain:
             if verbose:
                 print(f"Processing EIDR ID: {eidr_id} with domain: {alt_id_domain}")
-            xml_record = fetch_xml(eidr_id,alt_id_domain)
+            xml_record = fetch_xml(eidr_id, "Proprietary")
         else:
-            sys.exit(1)
-            xml_record = fetch_xml(eidr_id,verbose)
+            sys.exit(1)  # Exit if neither type nor domain is specified
+            xml_record = fetch_xml(eidr_id, verbose)
+        
         if xml_record:
             # Process the alternate IDs for this EIDR ID
             processed_data = process_alternate_ids(xml_record, verbose=verbose)
@@ -492,8 +494,9 @@ def process_eidr_ids(eidr_ids, verbose):
         else:
             print(f"No valid XML record found for EIDR ID {eidr_id}")
 
-    # Write or print the collected data for all IDs
+    # Return the collected data for all IDs
     return all_output_data
+
 def write_output(output_file, data):
     """
     Writes the processed output data to a specified file or the console.
@@ -737,10 +740,16 @@ def main():
                 eidr_ids = f.read().splitlines()
             if verbose:
                 print(f"Loaded {len(eidr_ids)} EIDR IDs from input file.")
-            output_data = process_eidr_ids(eidr_ids, verbose)
+            output_data = process_eidr_ids(
+            eidr_ids, 
+            verbose=args.verbose, 
+            alt_id_type=args.type, 
+            alt_id_domain=args.domain
+        )
         except Exception as e:
             print(f"Error reading input file: {e}")
             sys.exit(1)
+        write_output(args.output, output_data)
     elif args.eidr_id:
         # Process single EIDR ID
         eidr_id = args.eidr_id
