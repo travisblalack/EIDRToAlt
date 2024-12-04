@@ -356,7 +356,8 @@ def parse_alternate_ids(root, target_type, verbose=False):
 
             domain_text = f", Domain: {alt_id_info['domain']}" if 'domain' in alt_id_info else ""
             relation_text = f", Relation: {alt_id_info['relation']}" if 'relation' in alt_id_info else ""
-            print(f"Processing Alternate ID: {alt_id_info['value']} with type {alt_id_info['type']}{domain_text}{relation_text}")
+            if verbose:
+                print(f"Processing Alternate ID: {alt_id_info['value']} with type {alt_id_info['type']}{domain_text}{relation_text}")
 
     if not domain_found:
         print(f"No domain attributes found in Alternate IDs for type '{target_type}'.")
@@ -468,19 +469,23 @@ def write_output(output_file, data):
 
     Parameters:
     output_file (str or None): The path to the output file. If None, prints to the console.
-    data (list of dict): The data to write.
+    data (list): The data to write. This can be a list of strings or lists of strings.
 
     Returns:
     None
     """
-    # If you want to serialize each dictionary item in data as a JSON string
-    # and write it in a specific format (e.g., each item on a new line)
+    # Flatten the list if it's a list of lists
     if isinstance(data, list):
-        # Join all items into a string representation of each entry in the list
-        output = "\n".join(json.dumps(item, indent=4) for item in data)
+        # Flatten the list into a single list of strings
+        flattened_data = []
+        for item in data:
+            if isinstance(item, list):
+                flattened_data.extend(item)  # Add the elements of the inner list
+            else:
+                flattened_data.append(item)  # Add the string directly
+        output = "\n".join(flattened_data)  # Join all items into a single string separated by newlines
     else:
-        # If data is not a list, just serialize the whole thing
-        output = json.dumps(data, indent=4)
+        output = str(data)  # If data is not a list, convert it directly to a string
     
     if output_file:
         with open(output_file, 'w', encoding='utf-8') as f:
