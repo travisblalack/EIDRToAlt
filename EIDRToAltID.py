@@ -162,7 +162,6 @@ def open_output_file(output_path):
             print(f"Output file {output_path} opened successfully.")
     except Exception as e:
         print(f"Error opening file: {e}")
-        parser.print_help()
         sys.exit(1)
 
 def write_output_file(output_file, data):
@@ -259,7 +258,10 @@ AUTH_HEADER = {
     "Authorization": makeHeader(),
     "Content-Type": "application/json"
 }
-def fetch_xml(eidr_id,verbose=False):
+
+counter = 0  # Global counter to keep track of processed EIDR IDs
+
+def fetch_xml(eidr_id, verbose=False):
     """
     Fetches XML data for a given EIDR ID from the EIDR registry.
 
@@ -275,25 +277,31 @@ def fetch_xml(eidr_id,verbose=False):
 
     # Construct the EIDR URL using the provided ID
     # 11/13/24 need to fix the fact registry is hard coded
-    
+ 
+    global counter  # Use the global counter variable
+
+    # Construct the EIDR URL using the provided ID
     url = f"https://resolve.eidr.org/EIDR/object/{eidr_id}?type=AlternateID"
     if verbose:
         print(f"Constructed URL: {url}")
 
-    # Make a request to fetch the XML data with the global AUTH_HEADER
+    # Make a request to fetch the XML data
     response = requests.get(url, headers=AUTH_HEADER)
 
-    # Check if the request was successful
     if response.status_code == 200:
         # Parse the XML content
         xml_data = response.text
         root = ET.fromstring(xml_data)
-        result = parse_alternate_ids(root,verbose)
-        # Parse and return alternate ID information
+        result = parse_alternate_ids(root, verbose)
+
+        # Increment the counter for each successful EIDR ID
+        counter += 1
+       # print(counter)
         return result
     else:
         print(f"Failed to fetch XML for {eidr_id}, Status Code: {response.status_code}, Response content: {response.text}")
         return None
+
 #This processes a single ID
 def parse_alternate_ids(root, target_type, verbose=False):
     """
@@ -309,14 +317,11 @@ def parse_alternate_ids(root, target_type, verbose=False):
     Returns:
     dict: Contains the primary EIDR ID and a list of matching alternate IDs.
     """
-    # This function writes to the output
+    counter=0
     result = {}
-
-    # Handle the ID element and add it to the result if it exists
     id_elem = root.find('{http://www.eidr.org/schema}ID')
     if id_elem is not None:
         eidr_id = id_elem.text
-        # Check if the ID length is valid (should be 34 characters)
         if len(eidr_id) != 34 or not eidr_id.startswith("10.5240/"):
             print(f"Invalid EIDR ID: {eidr_id}")
             return result  # Return an empty result or handle as needed
@@ -325,57 +330,50 @@ def parse_alternate_ids(root, target_type, verbose=False):
         print("No ID element found")
         return result
 
-    # Initialize a list to store alternate IDs
     result['AlternateIDs'] = []
-    domain_found = False  # Flag to track if any domain attribute is found
+    domain_found = False
 
-    # Iterate over AlternateID elements
     for alt_id in root.findall('{http://www.eidr.org/schema}AlternateID'):
         alt_id_info = {}
-
-        # Add the 'value', which is the text content of the element
         alt_id_info['value'] = alt_id.text
 
-        # Add 'type' if it exists
         alt_id_type = alt_id.attrib.get('{http://www.w3.org/2001/XMLSchema-instance}type')
         if alt_id_type:
             alt_id_info['type'] = alt_id_type
 
-        # Add 'domain' if it exists
         alt_id_domain = alt_id.attrib.get('domain')
         if alt_id_domain:
             alt_id_info['domain'] = alt_id_domain
-            domain_found = True  # Flag to track if any domain attribute is found
-        # Add 'relation' only if it exists
+            domain_found = True
+            counter+=1
+
         alt_id_relation = alt_id.attrib.get('relation')
         if alt_id_relation:
             alt_id_info['relation'] = alt_id_relation
 
-        # Check if this alternate ID matches the target type
         if alt_id_type == target_type:
-            # Add the filtered AlternateID info to the result
             result['AlternateIDs'].append(alt_id_info)
 
-            # Display information depending on the presence of 'domain'
             domain_text = f", Domain: {alt_id_info['domain']}" if 'domain' in alt_id_info else ""
             relation_text = f", Relation: {alt_id_info['relation']}" if 'relation' in alt_id_info else ""
             print(f"Processing Alternate ID: {alt_id_info['value']} with type {alt_id_info['type']}{domain_text}{relation_text}")
-            
-
 
     if not domain_found:
         print(f"No domain attributes found in Alternate IDs for type '{target_type}'.")
-    # If no alternate IDs match the target type, return an empty list
+
     if not result['AlternateIDs']:
         print(f"No alternate IDs found for type '{target_type}'")
 
+    # Ensure you're returning the processed result and not the entire list structure with brackets
     return result
+
+
 
 import os
 import json
 
 #This processes the eidr id from an input file
-def process_alternate_ids(xml_record, verbose=False):
+def process_alternate_ids(xml_record, output_file, verbose=False):
     """
     Processes alternate IDs from an XML record.
 
@@ -388,68 +386,37 @@ def process_alternate_ids(xml_record, verbose=False):
     Returns:
     tuple: A dictionary of structured data and a list of formatted string output.
     """
-    output_data = {
-        "ID": xml_record.get('ID'),
-        "AlternateIDs": []
-    }
+    count = 0
+    record_id = xml_record.get('ID', 'Unknown')
+    processed_data = []
 
-    output_lines = []  # For the string output
-    count = 0  # Initialize the count
-    domain_found = False  # Flag to check if domain is found in any AlternateID
+    with open(output_file, 'a') as file:
+        for alt_id in xml_record.get('AlternateIDs', []):
+            alt_type = alt_id.get('type', 'N/A')
+            alt_value = alt_id.get('value', 'N/A')
+            domain = alt_id.get('domain', 'N/A')
+            alt_relation = alt_id.get('relation')
+
+            string_format = f"{record_id}  {alt_type}  {alt_value}"
+
+            if alt_type == "Proprietary":
+                string_format += f" {domain}"
+
+            if alt_relation:
+                string_format += f" {alt_relation}"
+
+            file.write(string_format + '\n')  # Write the formatted string directly
+            processed_data.append(string_format)  # Keep the processed strings as a list of strings
+            count += 1
+            if verbose:
+                print(string_format)  # Print the string directly, not a list
+
+    print(f"Number of Alternate IDs processed: {counter}")
+    return processed_data
 
 
-    # Process each AlternateID
-    for alt_id in xml_record.get('AlternateIDs', []):
-        alt_type = alt_id.get('type', 'N/A')
-        alt_value = alt_id.get('value', 'N/A')
-        domain = alt_id.get('domain', 'N/A')
-        alt_relation = alt_id.get('relation')  # None if no relation is present
-        
-        # Build the formatted ID for JSON-like output
-        formatted_id = {
-            "type": alt_type,
-            "value": alt_value,
-        }
-
-        # Add the domain only if the type is Proprietary
-        if alt_type == "Proprietary":
-            formatted_id["domain"] = domain
-
-        # Add the relation only if it exists
-        if alt_relation:
-            formatted_id["relation"] = alt_relation
-
-        # Append the formatted ID to the JSON-like output
-        output_data["AlternateIDs"].append(formatted_id)
-        count += 1  # Increment count
-
-        # Build the string output
-        string_format = f"Type: {alt_type}, Value: {alt_value}"
-
-        # If the type is Proprietary, add the domain
-        if alt_type == "Proprietary":
-            string_format += f", Domain: {domain}"
-
-        # Append relation to string output if it exists
-        if alt_relation:
-            string_format += f", Relation: {alt_relation}"
-
-        # Append the formatted ID to the string output lines
-        output_lines.append(string_format)
-
-        # If verbose mode is enabled, print each alternate ID as it is processed
-        if verbose:
-            print(string_format)
-
-        # If domain filter is found in the domain attribute, set the flag
-
-    # Print the number of alternate IDs processed in the terminal (not in the output)
-    print(f"Number of Alternate IDs processed: {count}")
-    
-    # Return output_data and output_lines
-    return output_data, output_lines
 # This formats the eidr ids from an input file
-def process_eidr_ids(eidr_ids, verbose, alt_id_type=None, alt_id_domain=None):
+def process_eidr_ids(eidr_ids, verbose, alt_id_type=None, alt_id_domain=None, output_file=None):
     """
     Processes a list of EIDR IDs from an input file.
 
@@ -470,7 +437,7 @@ def process_eidr_ids(eidr_ids, verbose, alt_id_type=None, alt_id_domain=None):
         if not eidr_id or len(eidr_id) != 34 or not eidr_id.startswith("10.5240/"):
             print(f"Invalid EIDR ID: {eidr_id}")
             continue
-        # Determine whether we are processing by type or domain
+        
         if alt_id_type:
             if verbose:
                 print(f"Processing EIDR ID: {eidr_id} with type: {alt_id_type}")
@@ -480,28 +447,24 @@ def process_eidr_ids(eidr_ids, verbose, alt_id_type=None, alt_id_domain=None):
                 print(f"Processing EIDR ID: {eidr_id} with domain: {alt_id_domain}")
             xml_record = fetch_xml(eidr_id, "Proprietary")
         else:
-            sys.exit(1)  # Exit if neither type nor domain is specified
-            xml_record = fetch_xml(eidr_id, verbose)
-        
+            sys.exit(1)
+
         if xml_record:
-            # Process the alternate IDs for this EIDR ID
-            processed_data = process_alternate_ids(xml_record, verbose=verbose)
-            
+            processed_data = process_alternate_ids(xml_record, output_file, verbose=verbose)
             if processed_data:
-                all_output_data.append(processed_data)
+                all_output_data.extend(processed_data)  # Add the individual formatted strings, not a list of lists
             else:
                 print(f"No alternate IDs found for EIDR ID {eidr_id}")
         else:
             print(f"No valid XML record found for EIDR ID {eidr_id}")
 
-    # Return the collected data for all IDs
+    # Return the list of processed strings (not lists)
     return all_output_data
+
 
 def write_output(output_file, data):
     """
     Writes the processed output data to a specified file or the console.
-
-    Formats the data as JSON before writing.
 
     Parameters:
     output_file (str or None): The path to the output file. If None, prints to the console.
@@ -510,7 +473,14 @@ def write_output(output_file, data):
     Returns:
     None
     """
-    output = json.dumps(data, indent=4)
+    # If you want to serialize each dictionary item in data as a JSON string
+    # and write it in a specific format (e.g., each item on a new line)
+    if isinstance(data, list):
+        # Join all items into a string representation of each entry in the list
+        output = "\n".join(json.dumps(item, indent=4) for item in data)
+    else:
+        # If data is not a list, just serialize the whole thing
+        output = json.dumps(data, indent=4)
     
     if output_file:
         with open(output_file, 'w', encoding='utf-8') as f:
@@ -518,6 +488,7 @@ def write_output(output_file, data):
         print(f"Output saved to {output_file}")
     else:
         print("Output:\n", output)
+
 
 def get_help_message(keyword):
     """
@@ -723,17 +694,10 @@ def main():
 
     # Check if a single EIDR ID is provided
 
-    output_data = []  # Initialize output_data to ensure it's always defined
+    output_data = []
 
+ # Inside main function, when processing EIDR IDs from the file:
     if args.input:
-        # Validate input file
-        if not os.path.isfile(args.input):
-            print(f"Error: Input file {args.input} does not exist.")
-            sys.exit(1)
-        elif os.path.getsize(args.input) == 0:
-            print(f"Error: Input file {args.input} is empty.")
-            sys.exit(1)
-
         # Read and process EIDR IDs from file
         try:
             with open(args.input, 'r', encoding='utf-8') as f:
@@ -741,15 +705,17 @@ def main():
             if verbose:
                 print(f"Loaded {len(eidr_ids)} EIDR IDs from input file.")
             output_data = process_eidr_ids(
-            eidr_ids, 
-            verbose=args.verbose, 
-            alt_id_type=args.type, 
-            alt_id_domain=args.domain
-        )
+                eidr_ids, 
+                verbose=args.verbose, 
+                alt_id_type=args.type, 
+                alt_id_domain=args.domain,
+                output_file=args.output
+            )
         except Exception as e:
             print(f"Error reading input file: {e}")
             sys.exit(1)
-        write_output(args.output, output_data)
+
+
     elif args.eidr_id:
         # Process single EIDR ID
         eidr_id = args.eidr_id
@@ -773,7 +739,7 @@ def main():
 
         # Process XML and collect data
         if xml_record:
-            processed_data = process_alternate_ids(xml_record, verbose=verbose)
+            processed_data = process_alternate_ids(xml_record, args.output, verbose=verbose)
             if processed_data:
                 output_data = [processed_data]  # Wrap in list for consistency
             else:
@@ -786,9 +752,14 @@ def main():
         print("Error: No input file or single EIDR ID provided.")
         sys.exit(1)
 
-    # Write output data
-    write_output(args.output, output_data)
-
+    # If no output file is provided, print results to the console
+    if args.output is None:
+    # If output is None, print the output to the console
+        for data in output_data:
+            print("\n".join(data))  # Join list items into a single string
+    else:
+    # Otherwise, write output to the specified file
+        write_output(args.output, output_data)
 
     
 if __name__ == "__main__":
