@@ -393,18 +393,15 @@ def process_alternate_ids(xml_record, output_file, verbose=False):
 
     with open(output_file, 'a') as file:
         for alt_id in xml_record.get('AlternateIDs', []):
-            alt_type = alt_id.get('type', 'N/A')
-            alt_value = alt_id.get('value', 'N/A')
-            domain = alt_id.get('domain', 'N/A')
-            alt_relation = alt_id.get('relation')
+            alt_type = alt_id.get('type', ' ')
+            alt_value = alt_id.get('value', ' ')
+            domain = alt_id.get('domain', ' ')
+            alt_relation = alt_id.get('relation',' ')
 
-            string_format = f"{record_id}  {alt_type}  {alt_value}"
+            string_format = f"{record_id}  {alt_type}  {alt_value}  {domain}   {alt_relation}"
 
             if alt_type == "Proprietary":
                 string_format += f" {domain}"
-
-            if alt_relation:
-                string_format += f" {alt_relation}"
 
             file.write(string_format + '\n')  # Write the formatted string directly
             processed_data.append(string_format)  # Keep the processed strings as a list of strings
@@ -412,7 +409,7 @@ def process_alternate_ids(xml_record, output_file, verbose=False):
             if verbose:
                 print(string_format)  # Print the string directly, not a list
 
-    print(f"Number of Alternate IDs processed: {counter}")
+    print(f"Number of Records processed: {counter}")
     return processed_data
 
 
