@@ -303,21 +303,21 @@ def fetch_xml(eidr_id, verbose=False):
         return None
 
 #This processes a single ID
-def parse_alternate_ids(root, target_type, verbose=False):
+def parse_alternate_ids(root, target_type=None, target_domain=None, verbose=False):
     """
     Parses the AlternateID elements from the given XML root.
 
-    Filters alternate IDs based on the target type and collects metadata such as type, value, domain, and relation.
+    Filters alternate IDs based on the target type and/or domain, and collects metadata such as type, value, domain, and relation.
 
     Parameters:
     root (xml.etree.ElementTree.Element): The root element of the XML record.
-    target_type (str): The type of alternate IDs to filter.
+    target_type (str, optional): The type of alternate IDs to filter. Defaults to None.
+    target_domain (str, optional): The domain of alternate IDs to filter. Defaults to None.
     verbose (bool, optional): Enables verbose logging of alternate ID processing. Defaults to False.
 
     Returns:
     dict: Contains the primary EIDR ID and a list of matching alternate IDs.
     """
-    counter=0
     result = {}
     id_elem = root.find('{http://www.eidr.org/schema}ID')
     if id_elem is not None:
@@ -331,43 +331,50 @@ def parse_alternate_ids(root, target_type, verbose=False):
         return result
 
     result['AlternateIDs'] = []
-    domain_found = False
 
     for alt_id in root.findall('{http://www.eidr.org/schema}AlternateID'):
-        alt_id_info = {}
-        alt_id_info['value'] = alt_id.text
+        alt_id_info = {
+            'value': alt_id.text,
+            'type': alt_id.attrib.get('{http://www.w3.org/2001/XMLSchema-instance}type', None),
+            'domain': alt_id.attrib.get('domain', None),
+            'relation': alt_id.attrib.get('relation', None),
+        }
 
-        alt_id_type = alt_id.attrib.get('{http://www.w3.org/2001/XMLSchema-instance}type')
-        if alt_id_type:
-            alt_id_info['type'] = alt_id_type
+        # Debugging prints
+        if verbose:
+            tab_formatted = (
+                f"{alt_id_info.get('value', '')}\t"
+                f"{alt_id_info.get('type', '')}\t"
+                f"{alt_id_info.get('domain', '')}\t"
+                f"{alt_id_info.get('relation', '')}"
+            )
+            print(f"Checking Alternate ID:\t{tab_formatted}")
+            print(f"Target Type:\t{target_type}\tTarget Domain:\t{target_domain}")
 
-        alt_id_domain = alt_id.attrib.get('domain')
-        if alt_id_domain:
-            alt_id_info['domain'] = alt_id_domain
-            domain_found = True
-            counter+=1
+        # Apply filtering logic
+        if target_type and alt_id_info['type'] != target_type:
+            continue  # Skip if type doesn't match
+        if target_domain and alt_id_info['domain'] != target_domain:
+            continue  # Skip if domain doesn't match
 
-        alt_id_relation = alt_id.attrib.get('relation')
-        if alt_id_relation:
-            alt_id_info['relation'] = alt_id_relation
+        # Add the alternate ID to the results if it passes the filters
+        result['AlternateIDs'].append(alt_id_info)
 
-        if alt_id_type == target_type:
-            result['AlternateIDs'].append(alt_id_info)
+        # Verbose logging
+        if verbose:
+            tab_formatted = (
+                f"{alt_id_info.get('value', '')}\t"
+                f"{alt_id_info.get('type', '')}\t"
+                f"{alt_id_info.get('domain', '')}\t"
+                f"{alt_id_info.get('relation', '')}"
+            )
+            print(f"Accepted Alternate ID:\t{tab_formatted}")
 
-            domain_text = f", Domain: {alt_id_info['domain']}" if 'domain' in alt_id_info else ""
-            relation_text = f", Relation: {alt_id_info['relation']}" if 'relation' in alt_id_info else ""
-            if verbose:
-                print(f"Processing Alternate ID: {alt_id_info['value']} with type {alt_id_info['type']}{domain_text}{relation_text}")
+    # Final verbose output
+    if verbose and not result['AlternateIDs']:
+        print(f"No alternate IDs found for type '{target_type}' and domain '{target_domain}'.")
 
-    if not domain_found:
-        print(f"No domain attributes found in Alternate IDs for type '{target_type}'.")
-
-    if not result['AlternateIDs']:
-        print(f"No alternate IDs found for type '{target_type}'")
-
-    # Ensure you're returning the processed result and not the entire list structure with brackets
     return result
-
 
 
 import os
@@ -398,10 +405,10 @@ def process_alternate_ids(xml_record, output_file, verbose=False):
             domain = alt_id.get('domain', ' ')
             alt_relation = alt_id.get('relation',' ')
 
-            string_format = f"{record_id}  {alt_type}  {alt_value}  {domain}   {alt_relation}"
+            string_format = f"{record_id}\t{alt_type}\t{alt_value}\t{domain}\t{alt_relation}"
 
-            if alt_type == "Proprietary":
-                string_format += f" {domain}"
+           # if alt_type == "Proprietary":
+            #    string_format += f" {domain}"
 
             file.write(string_format + '\n')  # Write the formatted string directly
             processed_data.append(string_format)  # Keep the processed strings as a list of strings
@@ -444,6 +451,9 @@ def process_eidr_ids(eidr_ids, verbose, alt_id_type=None, alt_id_domain=None, ou
             if verbose:
                 print(f"Processing EIDR ID: {eidr_id} with domain: {alt_id_domain}")
             xml_record = fetch_xml(eidr_id, "Proprietary")
+            if xml_record:
+                # Filter the alternate IDs by the domain after fetching the XML
+                xml_record = filter_by_domain(xml_record, alt_id_domain)
         else:
             sys.exit(1)
 
@@ -490,6 +500,28 @@ def write_output(output_file, data):
         print(f"Output saved to {output_file}")
     else:
         print("Output:\n", output)
+
+
+def filter_by_domain(xml_record, domain):
+    """
+    Filters the XML record to only include Proprietary Alternate IDs that match the specified domain.
+
+    Args:
+        xml_record (dict): The parsed XML record containing alternate IDs.
+        domain (str): The domain to filter alternate IDs by.
+
+    Returns:
+        dict: A filtered XML record with only matching domain Alternate IDs.
+    """
+    filtered_ids = []
+    # Loop through alternate IDs and filter by domain
+    for alt_id in xml_record.get('AlternateIDs', []):
+        if alt_id.get('type') == 'Proprietary' and alt_id.get('domain') == domain:
+            filtered_ids.append(alt_id)
+
+    # Update the XML record to contain only the filtered alternate IDs
+    xml_record['AlternateIDs'] = filtered_ids
+    return xml_record
 
 
 def get_help_message(keyword):
@@ -735,6 +767,9 @@ def main():
         elif args.domain:
             alt_id_domain = args.domain
             xml_record = fetch_xml(eidr_id, "Proprietary")
+            if xml_record:
+                # Filter the alternate IDs by the domain after fetching the XML
+                xml_record = filter_by_domain(xml_record, alt_id_domain)
         else:
             print("Error: Please provide either --type or --domain.")
             sys.exit(1)
