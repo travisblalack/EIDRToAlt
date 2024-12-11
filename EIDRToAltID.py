@@ -363,10 +363,10 @@ def parse_alternate_ids(root, target_type=None, target_domain=None, verbose=Fals
         # Verbose logging
         if verbose:
             tab_formatted = (
-                f"{alt_id_info.get('value', '')}\t"
-                f"{alt_id_info.get('type', '')}\t"
-                f"{alt_id_info.get('domain', '')}\t"
-                f"{alt_id_info.get('relation', '')}"
+        f"{alt_id_info.get('value', '') or ''}\t"
+        f"{alt_id_info.get('type', '') or ''}\t"
+        f"{alt_id_info.get('domain', '') or ''}\t"
+        f"{alt_id_info.get('relation', '') or ''}"
             )
             print(f"Accepted Alternate ID:\t{tab_formatted}")
 
@@ -381,7 +381,6 @@ import os
 import json
 
 total_count = 0
-#This processes the eidr id from an input file
 def process_alternate_ids(xml_record, output_file, verbose=False):
     """
     Processes alternate IDs from an XML record.
@@ -408,10 +407,10 @@ def process_alternate_ids(xml_record, output_file, verbose=False):
     if output_file:
         with open(output_file, 'a') as file:
             for alt_id in xml_record.get('AlternateIDs', []):
-                alt_type = alt_id.get('type', ' ')
-                alt_value = alt_id.get('value', ' ')
-                domain = alt_id.get('domain', ' ')
-                alt_relation = alt_id.get('relation', ' ')
+                alt_type = alt_id.get('type', '') or ''
+                alt_value = alt_id.get('value', '') or ''
+                domain = alt_id.get('domain', '') or ''
+                alt_relation = alt_id.get('relation', '') or ''
 
                 # Only process if alt_value is valid
                 if alt_value.strip():  # Skip if alt_value is empty or just whitespace
@@ -426,10 +425,10 @@ def process_alternate_ids(xml_record, output_file, verbose=False):
     else:
         # If output_file is None, print to the console
         for alt_id in xml_record.get('AlternateIDs', []):
-            alt_type = alt_id.get('type', ' ')
-            alt_value = alt_id.get('value', ' ')
-            domain = alt_id.get('domain', ' ')
-            alt_relation = alt_id.get('relation', ' ')
+            alt_type = alt_id.get('type', '') or ''
+            alt_value = alt_id.get('value', '') or ''
+            domain = alt_id.get('domain', '') or ''
+            alt_relation = alt_id.get('relation', '') or ''
 
             # Only process if alt_value is valid
             if alt_value.strip():  # Skip if alt_value is empty or just whitespace
@@ -440,8 +439,10 @@ def process_alternate_ids(xml_record, output_file, verbose=False):
                     print(string_format)  # Print the string directly, not a list
 
     total_count += count  # Update the global counter
-    print(f"Total Records processed: {total_count}")
+    if verbose:
+        print(f"Total Records processed: {total_count}")
     return processed_data
+
 
 # This formats the eidr ids from an input file
 def process_eidr_ids(eidr_ids, verbose, alt_id_type=None, alt_id_domain=None, output_file=None):
