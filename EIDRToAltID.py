@@ -12,6 +12,7 @@ from urllib import request          # For making HTTP requests
 import ssl
 import json
 from xml.dom import minidom
+import certifi
 
 global registryToUse
 global requestPagesize
@@ -35,6 +36,7 @@ EIDRTOALTID_PARTYID = '10.5237/FFDA-9947'
 EIDRTOALTID_PASSWORD = 'tNy!LEX~jBxk'
 
 API_URL = 'https://{REGISTRY_KEY}.eidr.org/EIDR/'
+QUERY_API_URL = 'https://{REGISTRY_KEY}.eidr.org/EIDR/query?type=id'
 
 verbose = False                     # If TRUE, send progress messages to the console
 debug = False                       # If TRUE, send diagnostic data to the console
@@ -276,12 +278,11 @@ def fetch_xml(eidr_id, verbose=False):
     """
 
     # Construct the EIDR URL using the provided ID
-    # 11/13/24 need to fix the fact registry is hard coded
  
     global counter  # Use the global counter variable
 
     # Construct the EIDR URL using the provided ID
-    url = f"https://resolve.eidr.org/EIDR/object/{eidr_id}?type=AlternateID"
+    url = f"https://{REGISTRY_KEY}.eidr.org/EIDR/object/{eidr_id}?type=AlternateID"
     if verbose:
         print(f"Constructed URL: {url}")
 
@@ -302,6 +303,76 @@ def fetch_xml(eidr_id, verbose=False):
         print(f"Failed to fetch XML for {eidr_id}, Status Code: {response.status_code}, Response content: {response.text}")
         return None
 
+def run_query_api(query='', verbose=False):
+    """
+    Executes a query against the EIDR API and returns results.
+    """
+    global QueryPageOffset, requestPagesize, pwShadow, EIDRTOALTID_LOGIN, EIDRTOALTID_PARTYID, cert_path, key_path
+
+    req_xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Request xmlns="http://www.eidr.org/schema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n'
+        '<Operation>\n'
+        '  <Query>\n'
+        f'     <Expression>{query}</Expression>\n'
+        f'     <PageNumber>{QueryPageOffset}</PageNumber>\n'
+        f'     <PageSize>{requestPagesize}</PageSize>\n'
+        '  </Query>\n'
+        '</Operation>\n'
+        '</Request>'
+    )
+    
+    try:
+        if query == '':
+            return None
+        
+        pwBytes = bytes(EIDRTOALTID_PASSWORD, 'utf-8')
+        if REGISTRY_KEY == 'resolve':
+            hash = hashlib.sha256(pwBytes)
+        else:
+            hash = hashlib.md5(pwBytes)
+        
+        pwShadow = base64.b64encode(hash.digest())
+        authStr = f'Eidr {EIDRTOALTID_LOGIN}:{EIDRTOALTID_PARTYID}:{str(pwShadow, encoding="utf-8")}'
+        headers = {
+            'Content-Type': 'text/xml',
+            'Authorization': authStr,
+            'Accept': 'text/xml',
+        }
+
+        body = bytes(req_xml, 'utf-8')
+
+        if verbose:
+            print("Request XML:")
+            print(req_xml)
+            print("Headers:")
+            print(headers)
+
+        url = "https://resolve.eidr.org:443/EIDR"
+
+        try:
+            response = requests.get(url, headers=headers, data=body, verify=certifi.where())
+
+            if response.status_code != 200:
+                print(f"Unexpected response: {response.status_code}")
+                print(response.text)
+                return None
+
+            QueryPageOffset += 1  # Increment page for next query
+
+            if verbose:
+                print(f"Response received: {response.status_code}")
+                print(response.text)
+
+            return response.text
+
+        except requests.RequestException as e:
+            print(f"Error querying API: {e}")
+            return None
+
+    except Exception as e:
+        print(f"Error preparing query: {e}")
+        return None
 #This processes a single ID
 def parse_alternate_ids(root, target_type=None, target_domain=None, verbose=False):
     """
@@ -647,12 +718,22 @@ def main():
     group.add_argument('-dom', '--domain', required=False, help=get_help_message('domain'))
     group.add_argument('-t', '--type', required=False, help=get_help_message('type'))
     args = parser.parse_args()
-    #sys argv holds command line arguments
-    #Only the script name is present, meaning no additional arguments were provided.
-    # needs to be at least one because if the length was zero, it wouldn't exist
+    
     if len(sys.argv) == 1:
         print("No arguments provided. Displaying help options.")
         parser.print_help()
+        sys.exit(1)
+        query = "" 
+        query_results = run_query_api(query,verbose=args.verbose)
+        if query_results:
+            if args.output:
+                with open(args.output, "w", encoding="utf-8") as f:
+                    f.write(query_results)
+                print(f"Query results written to {args.output}")
+            else:
+                print(query_results)
+        else:
+            print("No results found from the query API.")
         sys.exit(1)
     verbose = args.verbose
     # The help and verbose parameters don't need to be initialized
@@ -810,8 +891,17 @@ def main():
             print(f"No valid XML record found for EIDR ID {eidr_id}")
             sys.exit(1)
     else:
-        print("Error: No input file or single EIDR ID provided.")
-        sys.exit(1)
+        # No ID or input file, run query based on type or domain
+        query = {"type": args.type, "domain": args.domain}
+        if verbose:
+            print(f"Running query with parameters: {query}")
+        query_results = run_query_api(query, verbose=verbose)
+        if query_results:
+            output_data = [query_results]
+        else:
+            print("No results found from the query API.")
+            sys.exit(1)
+    
 
     # If no output file is provided, print results to the console
     if args.output is None:
