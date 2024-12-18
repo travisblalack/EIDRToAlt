@@ -13,6 +13,8 @@ import ssl
 import json
 from xml.dom import minidom
 import certifi
+import urllib.request
+
 
 global registryToUse
 global requestPagesize
@@ -49,8 +51,8 @@ maxCount = 0
 
 
 IDList = []                                                                             # List of EIDR IDs to process this round
-DefaultQuery = '/FullMetadata/BaseObjectData/AlternateID@type "TYPE" EXISTS AND  /FullMetadata/BaseObjectData EXISTS' # Default for Type
-DomainQuery = '/FullMetadata/BaseObjectData/AlternateID@domain ' # For the domain
+DefaultQuery = '/FullMetadata/BaseObjectData/AlternateID@type "TYPE"'   # Default for Type
+DomainQuery = '/FullMetadata/BaseObjectData/AlternateID@domain "DOMAIN"' # For the domain
 globCnt = 0                     # Count of records processed
 globErrCnt = 0                  # Count of errors encountered
 tmpFileName = 'EIDRTOALTID_' + str(uuid.uuid4().hex) + '.xml'          # Temporary file name for gChange configuration
@@ -307,25 +309,24 @@ def run_query_api(query='', verbose=False):
     """
     Executes a query against the EIDR API and returns results.
     """
-    global QueryPageOffset, requestPagesize, pwShadow, EIDRTOALTID_LOGIN, EIDRTOALTID_PARTYID, cert_path, key_path
+    global QueryPageOffset, requestPagesize,REGISTRY_KEY, debug
 
-    req_xml = (
-        '<?xml version="1.0" encoding="UTF-8"?>'
-        '<Request xmlns="http://www.eidr.org/schema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n'
-        '<Operation>\n'
-        '  <Query>\n'
-        f'     <Expression>{query}</Expression>\n'
-        f'     <PageNumber>{QueryPageOffset}</PageNumber>\n'
-        f'     <PageSize>{requestPagesize}</PageSize>\n'
-        '  </Query>\n'
-        '</Operation>\n'
-        '</Request>'
-    )
-    
+
+    url = "https://resolve.eidr.org/EIDR/query?type=id"  # Define the URL
+
+    req_xml = '<?xml version="1.0" encoding="UTF-8"?>' \
+              '<Request xmlns="http://www.eidr.org/schema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n' \
+              '<Operation>\n' \
+              '  <Query>\n' + \
+              f'     <Expression>({query})</Expression>\n ' \
+              f'     <PageNumber>{QueryPageOffset}</PageNumber> <PageSize>{requestPagesize}</PageSize>\n' \
+              '  </Query>\n' \
+              '</Operation>\n' \
+              '</Request>'
     try:
         if query == '':
             return None
-        
+
         pwBytes = bytes(EIDRTOALTID_PASSWORD, 'utf-8')
         if REGISTRY_KEY == 'resolve':
             hash = hashlib.sha256(pwBytes)
@@ -334,45 +335,30 @@ def run_query_api(query='', verbose=False):
         
         pwShadow = base64.b64encode(hash.digest())
         authStr = f'Eidr {EIDRTOALTID_LOGIN}:{EIDRTOALTID_PARTYID}:{str(pwShadow, encoding="utf-8")}'
-        headers = {
+
+        hdr = {
             'Content-Type': 'text/xml',
             'Authorization': authStr,
-            'Accept': 'text/xml',
+            'Accept': 'text/xml'
         }
-
+        
         body = bytes(req_xml, 'utf-8')
+        r = requests.post(url, headers=hdr, data=body, verify=certifi.where())
 
-        if verbose:
-            print("Request XML:")
-            print(req_xml)
-            print("Headers:")
-            print(headers)
-
-        url = "https://resolve.eidr.org:443/EIDR"
-
-        try:
-            response = requests.get(url, headers=headers, data=body, verify=certifi.where())
-
-            if response.status_code != 200:
-                print(f"Unexpected response: {response.status_code}")
-                print(response.text)
-                return None
-
-            QueryPageOffset += 1  # Increment page for next query
-
-            if verbose:
-                print(f"Response received: {response.status_code}")
-                print(response.text)
-
-            return response.text
-
-        except requests.RequestException as e:
-            print(f"Error querying API: {e}")
+        if r.status_code != 200:
+            print(f"Unexpected response: {r.status_code}")
             return None
 
+        QueryPageOffset += 1  # Advance page offset for next round
+
+        return r.text  # Return the response body to the caller
+
     except Exception as e:
-        print(f"Error preparing query: {e}")
-        return None
+        if debug:
+            print(f'ERR! {e}')
+        raise
+
+
 #This processes a single ID
 def parse_alternate_ids(root, target_type=None, target_domain=None, verbose=False):
     """
@@ -564,7 +550,6 @@ def process_eidr_ids(eidr_ids, verbose, alt_id_type=None, alt_id_domain=None, ou
     # Return the list of processed strings (not lists)
     return all_output_data
 
-
 def write_output(output_file, data):
     """
     Writes the processed output data to a specified file or the console.
@@ -723,7 +708,7 @@ def main():
         print("No arguments provided. Displaying help options.")
         parser.print_help()
         sys.exit(1)
-        query = "" 
+        query = '' 
         query_results = run_query_api(query,verbose=args.verbose)
         if query_results:
             if args.output:
@@ -891,17 +876,37 @@ def main():
             print(f"No valid XML record found for EIDR ID {eidr_id}")
             sys.exit(1)
     else:
-        # No ID or input file, run query based on type or domain
-        query = {"type": args.type, "domain": args.domain}
-        if verbose:
-            print(f"Running query with parameters: {query}")
-        query_results = run_query_api(query, verbose=verbose)
-        if query_results:
-            output_data = [query_results]
-        else:
-            print("No results found from the query API.")
+    # No ID or input file provided, construct and run a query
+        try:
+            if args.type or args.domain:
+                # Determine query parameters based on provided arguments
+                if args.type:
+                    query = DefaultQuery.replace("TYPE", args.type)
+                elif args.domain:
+                    query = DomainQuery.replace("DOMAIN",args.domain)
+
+                if verbose:
+                    print(f"Constructed query: {query}")
+                    print(f"Running query with parameters: {query}")
+                
+                # Call the function to run the query
+                query_results = run_query_api(query, verbose=verbose)
+                
+                if query_results:
+                    output_data = [query_results]
+                    if verbose:
+                        print(f"Query results: {query_results}")
+                else:
+                    print("No results found from the query API.")
+                    sys.exit(1)
+            else:
+                raise ValueError("No EIDR ID, input file, type, or domain provided. Cannot proceed.")
+        except Exception as e:
+            print(f"Error: {e}")
             sys.exit(1)
-    
+
+
+
 
     # If no output file is provided, print results to the console
     if args.output is None:
