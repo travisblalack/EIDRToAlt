@@ -299,7 +299,6 @@ def fetch_xml(eidr_id, verbose=False):
 
         # Increment the counter for each successful EIDR ID
         counter += 1
-       # print(counter)
         return result
     else:
         print(f"Failed to fetch XML for {eidr_id}, Status Code: {response.status_code}, Response content: {response.text}")
@@ -309,10 +308,10 @@ def run_query_api(query='', verbose=False):
     """
     Executes a query against the EIDR API and returns results.
     """
-    global QueryPageOffset, requestPagesize,REGISTRY_KEY, debug
+    global QueryPageOffset, requestPagesize,debug
 
 
-    url = "https://resolve.eidr.org/EIDR/query?type=id"  # Define the URL
+    url = f"https://{REGISTRY_KEY}.eidr.org/EIDR/query?type=id"  # Define the URL
 
     req_xml = '<?xml version="1.0" encoding="UTF-8"?>' \
               '<Request xmlns="http://www.eidr.org/schema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">\n' \
@@ -603,6 +602,27 @@ def filter_by_domain(xml_record, domain):
     xml_record['AlternateIDs'] = filtered_ids
     return xml_record
 
+import re
+
+def format_query_results(query_results, verbose=False):
+    """
+    Formats query results by extracting and cleaning IDs from XML.
+
+    Parameters:
+    query_results (str): Raw XML query result as a string.
+    verbose (bool): Enables verbose logging of processing steps.
+
+    Returns:
+    list of str: A list of cleaned IDs.
+    """
+    # Use a regex to extract all IDs between <ID>...</ID> tags
+    ids = re.findall(r"<ID>(.*?)</ID>", query_results)
+    
+    if verbose:
+        print(f"Extracted {len(ids)} IDs from the query results.")
+    
+    return ids
+
 
 def get_help_message(keyword):
     """
@@ -876,36 +896,41 @@ def main():
             print(f"No valid XML record found for EIDR ID {eidr_id}")
             sys.exit(1)
     else:
-    # No ID or input file provided, construct and run a query
-        try:
-            if args.type or args.domain:
-                # Determine query parameters based on provided arguments
-                if args.type:
-                    query = DefaultQuery.replace("TYPE", args.type)
-                elif args.domain:
-                    query = DomainQuery.replace("DOMAIN",args.domain)
+            # No ID or input file provided, construct and run a query
+            try:
+                if args.type or args.domain:
+                    # Determine query parameters based on provided arguments
+                    if args.type:
+                        query = DefaultQuery.replace("TYPE", args.type)
+                    elif args.domain:
+                        query = DomainQuery.replace("DOMAIN", args.domain)
 
-                if verbose:
-                    print(f"Constructed query: {query}")
-                    print(f"Running query with parameters: {query}")
-                
-                # Call the function to run the query
-                query_results = run_query_api(query, verbose=verbose)
-                
-                if query_results:
-                    output_data = [query_results]
                     if verbose:
-                        print(f"Query results: {query_results}")
+                        print(f"Constructed query: {query}")
+                        print(f"Running query with parameters: {query}")
+                    
+                    # Call the function to run the query
+                    query_results = run_query_api(query, verbose=verbose)
+                    
+                    if query_results:
+                        # Format the query results
+                        formatted_ids = format_query_results(query_results, verbose=verbose)
+                        
+                        if args.output:
+                            with open(args.output, "w") as file:
+                                file.write("\n".join(formatted_ids))
+                            if verbose:
+                                print(f"Results written to {args.output}")
+                        else:
+                            print("\n".join(formatted_ids))
+                    else:
+                        print("No results found from the query API.")
+                        sys.exit(1)
                 else:
-                    print("No results found from the query API.")
-                    sys.exit(1)
-            else:
-                raise ValueError("No EIDR ID, input file, type, or domain provided. Cannot proceed.")
-        except Exception as e:
-            print(f"Error: {e}")
-            sys.exit(1)
-
-
+                    raise ValueError("No EIDR ID, input file, type, or domain provided. Cannot proceed.")
+            except Exception as e:
+                print(f"Error: {e}")
+                sys.exit(1)
 
 
     # If no output file is provided, print results to the console
