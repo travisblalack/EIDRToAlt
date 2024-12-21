@@ -14,7 +14,7 @@ import json
 from xml.dom import minidom
 import certifi
 import urllib.request
-
+import re
 
 global registryToUse
 global requestPagesize
@@ -519,10 +519,16 @@ def process_eidr_ids(eidr_ids, verbose, alt_id_type=None, alt_id_domain=None, ou
     all_output_data = []
 
     for eidr_id in eidr_ids:
-        if not eidr_id or len(eidr_id) != 34 or not eidr_id.startswith("10.5240/"):
+        # Skip blank lines or lines with only whitespace
+        if not eidr_id.strip():
+            print("Skipping blank line in input.")
+            continue
+
+        # Validate EIDR ID format
+        if len(eidr_id) != 34 or not eidr_id.startswith("10.5240/"):
             print(f"Invalid EIDR ID: {eidr_id}")
             continue
-        
+
         if alt_id_type:
             if verbose:
                 print(f"Processing EIDR ID: {eidr_id} with type: {alt_id_type}")
@@ -548,6 +554,7 @@ def process_eidr_ids(eidr_ids, verbose, alt_id_type=None, alt_id_domain=None, ou
 
     # Return the list of processed strings (not lists)
     return all_output_data
+
 
 def write_output(output_file, data):
     """
@@ -602,26 +609,86 @@ def filter_by_domain(xml_record, domain):
     xml_record['AlternateIDs'] = filtered_ids
     return xml_record
 
-import re
-
-def format_query_results(query_results, verbose=False):
+def process_query_results(query_results, verbose=False, alt_id_type=None, alt_id_domain=None, output_file=None):
     """
-    Formats query results by extracting and cleaning IDs from XML.
+    Processes query results and formats them into a list of strings, similar to process_eidr_ids.
+    
+    Parameters:
+    query_results (str): Raw XML query result as a string.
+    verbose (bool): Enables verbose logging of processing steps.
+    alt_id_type (str, optional): The type to filter alternate IDs by.
+    alt_id_domain (str, optional): The domain to filter alternate IDs by.
+    output_file (str, optional): Path to the output file.
+    
+    Returns:
+    list of str: Collected data for all valid query results, formatted as strings.
+    """
+    # Ensure only one of alt_id_type or alt_id_domain is provided
+    if alt_id_type and alt_id_domain:
+        raise ValueError("Cannot specify both type and domain for a query. Please choose only one.")
+    
+    # Extract the relevant EIDR ID from the query results (this is for illustration, adapt to your actual XML structure)
+    xml_record = fetch_xml(query_results)  # Assume this function extracts XML to a dictionary structure
+    
+    # Call process_alternate_ids to handle the formatting of the IDs
+    processed_data = process_alternate_ids(xml_record, output_file, verbose)
+
+    # Now filter by type or domain if applicable
+    all_output_data = []
+    for alt_id in processed_data:
+        # Filter based on the type if specified
+        if alt_id_type and alt_id_type not in alt_id:
+            if verbose:
+                print(f"Skipping ID {alt_id} due to type mismatch.")
+            continue
+        
+        # Filter based on the domain if specified
+        if alt_id_domain and alt_id_domain not in alt_id:
+            if verbose:
+                print(f"Skipping ID {alt_id} due to domain mismatch.")
+            continue
+        
+        all_output_data.append(alt_id)
+
+        if verbose:
+            print(f"Processed alternate ID: {alt_id}")
+        
+        # Write the result to the output file if specified
+        if output_file:
+            with open(output_file, "a") as f:
+                f.write(alt_id + "\n")
+
+    return all_output_data
+
+
+def format_query_results(query_results, verbose=False, alt_id_type=None, alt_id_domain=None):
+    """
+    Formats query results by extracting and cleaning IDs from XML and outputs them in the specified format.
 
     Parameters:
     query_results (str): Raw XML query result as a string.
     verbose (bool): Enables verbose logging of processing steps.
+    alt_id_type (str, optional): The type to filter alternate IDs by (e.g., 'ShortDOI').
+    alt_id_domain (str, optional): The domain to filter alternate IDs by.
 
     Returns:
-    list of str: A list of cleaned IDs.
+    list of str: A list of formatted strings for the IDs and their associated metadata.
     """
     # Use a regex to extract all IDs between <ID>...</ID> tags
     ids = re.findall(r"<ID>(.*?)</ID>", query_results)
-    
+
+    formatted_ids = []
     if verbose:
         print(f"Extracted {len(ids)} IDs from the query results.")
-    
-    return ids
+
+    for eidr_id in ids:
+        # Add the alt_id_type and alt_id_domain to the formatted output
+        formatted_line = f"{eidr_id}\t{alt_id_type or 'Unknown'}\t{alt_id_domain or 'Unknown'}\tIsSameAs"
+        formatted_ids.append(formatted_line)
+
+    return formatted_ids
+
+
 
 
 def get_help_message(keyword):
@@ -728,18 +795,7 @@ def main():
         print("No arguments provided. Displaying help options.")
         parser.print_help()
         sys.exit(1)
-        query = '' 
-        query_results = run_query_api(query,verbose=args.verbose)
-        if query_results:
-            if args.output:
-                with open(args.output, "w", encoding="utf-8") as f:
-                    f.write(query_results)
-                print(f"Query results written to {args.output}")
-            else:
-                print(query_results)
-        else:
-            print("No results found from the query API.")
-        sys.exit(1)
+        
     verbose = args.verbose
     # The help and verbose parameters don't need to be initialized
     if args.version:
@@ -895,42 +951,51 @@ def main():
         else:
             print(f"No valid XML record found for EIDR ID {eidr_id}")
             sys.exit(1)
-    else:
-            # No ID or input file provided, construct and run a query
-            try:
-                if args.type or args.domain:
-                    # Determine query parameters based on provided arguments
-                    if args.type:
-                        query = DefaultQuery.replace("TYPE", args.type)
-                    elif args.domain:
-                        query = DomainQuery.replace("DOMAIN", args.domain)
 
-                    if verbose:
-                        print(f"Constructed query: {query}")
-                        print(f"Running query with parameters: {query}")
-                    
-                    # Call the function to run the query
-                    query_results = run_query_api(query, verbose=verbose)
-                    
-                    if query_results:
-                        # Format the query results
-                        formatted_ids = format_query_results(query_results, verbose=verbose)
-                        
-                        if args.output:
-                            with open(args.output, "w") as file:
-                                file.write("\n".join(formatted_ids))
-                            if verbose:
-                                print(f"Results written to {args.output}")
-                        else:
-                            print("\n".join(formatted_ids))
+    else:
+        # No ID or input file provided, construct and run a query
+        try:
+            if args.type or args.domain:
+                # Construct the query based on provided arguments
+                if args.type:
+                    query = DefaultQuery.replace("TYPE", args.type)
+                elif args.domain:
+                    query = DomainQuery.replace("DOMAIN", args.domain)
+
+                if verbose:
+                    print(f"Constructed query: {query}")
+                    print(f"Running query with parameters: {query}")
+
+                # Run the query and get the results
+                query_results = run_query_api(query, verbose=verbose)
+
+                if query_results:
+                    # Format the query results into a list of strings
+                    formatted_ids = format_query_results(query_results, verbose=verbose)
+
+                    # Pass alt_id_domain if it was provided
+                    if args.domain:
+                        # Here we can directly process the results, filtering them by domain if necessary
+                        formatted_ids = format_query_results(query_results,verbose=verbose)
+
+                    # Write the formatted results to the output file or print to the console
+                    if args.output:
+                        with open(args.output, "w") as file:
+                            file.write("\n".join(formatted_ids))
+                        if verbose:
+                            print(f"Results written to {args.output}")
                     else:
-                        print("No results found from the query API.")
-                        sys.exit(1)
+                        print("\n".join(formatted_ids))
                 else:
-                    raise ValueError("No EIDR ID, input file, type, or domain provided. Cannot proceed.")
-            except Exception as e:
-                print(f"Error: {e}")
-                sys.exit(1)
+                    print("No results found from the query API.")
+                    sys.exit(1)
+            else:
+                raise ValueError("No EIDR ID, input file, type, or domain provided. Cannot proceed.")
+        except Exception as e:
+            print(f"Error: {e}")
+            sys.exit(1)
+
+
 
 
     # If no output file is provided, print results to the console
