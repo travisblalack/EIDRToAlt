@@ -661,34 +661,23 @@ def process_query_results(query_results, verbose=False, alt_id_type=None, alt_id
     return all_output_data
 
 
-def format_query_results(query_results, verbose=False, alt_id_type=None, alt_id_domain=None):
+def format_query_results(query_results, verbose=False):
     """
-    Formats query results by extracting and cleaning IDs from XML and outputs them in the specified format.
+    Formats query results by extracting and cleaning IDs from XML.
 
     Parameters:
     query_results (str): Raw XML query result as a string.
     verbose (bool): Enables verbose logging of processing steps.
-    alt_id_type (str, optional): The type to filter alternate IDs by (e.g., 'ShortDOI').
-    alt_id_domain (str, optional): The domain to filter alternate IDs by.
 
     Returns:
-    list of str: A list of formatted strings for the IDs and their associated metadata.
+    list of str: A list of cleaned IDs.
     """
     # Use a regex to extract all IDs between <ID>...</ID> tags
     ids = re.findall(r"<ID>(.*?)</ID>", query_results)
-
-    formatted_ids = []
     if verbose:
         print(f"Extracted {len(ids)} IDs from the query results.")
-
-    for eidr_id in ids:
-        # Add the alt_id_type and alt_id_domain to the formatted output
-        formatted_line = f"{eidr_id}\t{alt_id_type or 'Unknown'}\t{alt_id_domain or 'Unknown'}\tIsSameAs"
-        formatted_ids.append(formatted_line)
-
-    return formatted_ids
-
-
+    
+    return ids
 
 
 def get_help_message(keyword):
@@ -968,15 +957,28 @@ def main():
 
                 # Run the query and get the results
                 query_results = run_query_api(query, verbose=verbose)
-
+    
                 if query_results:
                     # Format the query results into a list of strings
                     formatted_ids = format_query_results(query_results, verbose=verbose)
-
+                    output_data = process_eidr_ids(
+                formatted_ids, 
+                verbose=args.verbose, 
+                alt_id_type=args.type, 
+                alt_id_domain=args.domain,
+                output_file=args.output
+            )
                     # Pass alt_id_domain if it was provided
                     if args.domain:
                         # Here we can directly process the results, filtering them by domain if necessary
                         formatted_ids = format_query_results(query_results,verbose=verbose)
+                    output_data = process_eidr_ids(
+                formatted_ids, 
+                verbose=args.verbose, 
+                alt_id_type=args.type, 
+                alt_id_domain=args.domain,
+                output_file=args.output
+            )
 
                     # Write the formatted results to the output file or print to the console
                     if args.output:
@@ -994,9 +996,6 @@ def main():
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
-
-
-
 
     # If no output file is provided, print results to the console
     if args.output is None:
