@@ -942,32 +942,19 @@ def main():
             print(f"Invalid EIDR ID: {eidr_id}")
             sys.exit(1)
         print("Running process, please wait")
-        if args.type:
-            alt_id_type = args.type
-            xml_record = fetch_xml(eidr_id, alt_id_type)
-            if xml_record:
-                xml_record = filter_by_type(xml_record,alt_id_type)
-        elif args.domain:
-            alt_id_domain = args.domain
-            xml_record = fetch_xml(eidr_id, "Proprietary")
-            if xml_record:
-                # Filter the alternate IDs by the domain after fetching the XML
-                xml_record = filter_by_domain(xml_record, alt_id_domain)
-        else:
-            print("Error: Please provide either --type or --domain.")
-            sys.exit(1)
-
-        # Process XML and collect data
-        if xml_record:
-            processed_data = process_alternate_ids(xml_record, args.output, verbose=verbose)
-            if processed_data:
-                output_data = processed_data  # Wrap in list for consistency
-            else:
+        eidr_ids = []
+        eidr_ids.append(eidr_id)
+        output_data = process_eidr_ids(
+                eidr_ids, 
+                verbose=args.verbose, 
+                alt_id_type=args.type, 
+                alt_id_domain=args.domain,
+                output_file=args.output
+            )
+     
+        if output_data==None:
                 print(f"No alternate IDs found for EIDR ID {eidr_id}")
                 sys.exit(1)
-        else:
-            print(f"No valid XML record found for EIDR ID {eidr_id}")
-            sys.exit(1)
 
     else:
         # No ID or input file provided, construct and run a query
