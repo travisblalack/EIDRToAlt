@@ -265,7 +265,7 @@ AUTH_HEADER = {
 
 counter = 0  # Global counter to keep track of processed EIDR IDs
 
-def fetch_xml(eidr_id, verbose=False):
+def fetch_xml(eidr_id, alt_id_type):
     """
     Fetches XML data for a given EIDR ID from the EIDR registry.
 
@@ -280,7 +280,7 @@ def fetch_xml(eidr_id, verbose=False):
     """
 
     # Construct the EIDR URL using the provided ID
- 
+    
     global counter  # Use the global counter variable
 
     # Construct the EIDR URL using the provided ID
@@ -530,9 +530,15 @@ def process_eidr_ids(eidr_ids, verbose, alt_id_type=None, alt_id_domain=None, ou
             continue
 
         if alt_id_type:
+            
             if verbose:
                 print(f"Processing EIDR ID: {eidr_id} with type: {alt_id_type}")
+           
             xml_record = fetch_xml(eidr_id, alt_id_type)
+            if xml_record:
+                # Filter the alternate IDs by the domain after fetching the XML
+               
+                xml_record = filter_by_type(xml_record,alt_id_type)
         elif alt_id_domain:
             if verbose:
                 print(f"Processing EIDR ID: {eidr_id} with domain: {alt_id_domain}")
@@ -586,6 +592,26 @@ def write_output(output_file, data):
         print(f"Output saved to {output_file}")
     else:
         print("Output:\n", output)
+def filter_by_type(xml_record, alt_id_type):
+    """
+    Filters the XML record to only include Alternate IDs that match the specified type.
+
+    Args:
+        xml_record (dict): The parsed XML record containing alternate IDs.
+        alt_id_type (str): The type to filter alternate IDs by.
+
+    Returns:
+        dict: A filtered XML record with only matching type Alternate IDs.
+    """
+    filtered_ids = []
+    # Loop through alternate IDs and filter by type
+    for alt_id in xml_record.get('AlternateIDs', []):
+        if alt_id.get('type') == alt_id_type:
+            filtered_ids.append(alt_id)
+
+    # Update the XML record to contain only the filtered alternate IDs
+    xml_record['AlternateIDs'] = filtered_ids
+    return xml_record
 
 
 def filter_by_domain(xml_record, domain):
@@ -915,10 +941,12 @@ def main():
         if not eidr_id.startswith("10.5240/") or len(eidr_id) != 34:
             print(f"Invalid EIDR ID: {eidr_id}")
             sys.exit(1)
-
+        print("Running process, please wait")
         if args.type:
             alt_id_type = args.type
             xml_record = fetch_xml(eidr_id, alt_id_type)
+            if xml_record:
+                xml_record = filter_by_type(xml_record,alt_id_type)
         elif args.domain:
             alt_id_domain = args.domain
             xml_record = fetch_xml(eidr_id, "Proprietary")
@@ -957,7 +985,7 @@ def main():
 
                 # Run the query and get the results
                 query_results = run_query_api(query, verbose=verbose)
-    
+                print("Running query, please wait")
                 if query_results:
                     # Format the query results into a list of strings
                     formatted_ids = format_query_results(query_results, verbose=verbose)
