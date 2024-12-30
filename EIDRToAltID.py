@@ -38,13 +38,11 @@ EIDRTOALTID_PARTYID = '10.5237/FFDA-9947'
 EIDRTOALTID_PASSWORD = 'tNy!LEX~jBxk'
 
 API_URL = 'https://{REGISTRY_KEY}.eidr.org/EIDR/'
-QUERY_API_URL = 'https://{REGISTRY_KEY}.eidr.org/EIDR/query?type=id'
 
 verbose = False                     # If TRUE, send progress messages to the console
 debug = False                       # If TRUE, send diagnostic data to the console
 showCount = True                    # If TRUE, show show counts of records processed / errors while running
-requestPagesize = 100              # Number of records to retrieve per round
-QueryPageOffset = 1                 # Page offset for repeated query rounds
+requestPagesize = 1              # Number of records to retrieve per round                # Page offset for repeated query rounds
 opLog = 'EIDRToAlt.oplog'            # Operation log filename.   Set to '' to suppress
 maxErrors = 0                       # If non-zero, abort after this many errors
 maxCount = 0  
@@ -248,7 +246,7 @@ def makeHeader():
     try:
         # Generate the hashed password and base64-encoded value
         pwBytes = bytes(EIDRTOALTID_PASSWORD, 'utf-8')
-        hash = hashlib.sha256(pwBytes)  # Change to MD5 as per request
+        hash = hashlib.sha256(pwBytes)
         pwShadow = base64.b64encode(hash.digest())
         
         # Create the authorization string
@@ -308,7 +306,9 @@ def run_query_api(query='', verbose=False):
     """
     Executes a query against the EIDR API and returns results.
     """
-    global QueryPageOffset, requestPagesize,debug
+    global  requestPagesize,debug
+    QueryPageOffset = 1
+
 
 
     url = f"https://{REGISTRY_KEY}.eidr.org/EIDR/query?type=id"  # Define the URL
@@ -330,7 +330,7 @@ def run_query_api(query='', verbose=False):
         if REGISTRY_KEY == 'resolve':
             hash = hashlib.sha256(pwBytes)
         else:
-            hash = hashlib.md5(pwBytes)
+            hash = hashlib.sha256(pwBytes)
         
         pwShadow = base64.b64encode(hash.digest())
         authStr = f'Eidr {EIDRTOALTID_LOGIN}:{EIDRTOALTID_PARTYID}:{str(pwShadow, encoding="utf-8")}'
@@ -764,13 +764,12 @@ def get_help_message(keyword):
     return messages.get(keyword, "No help message available")
 
 def main():
-    global EIDRTOALTID_LOGIN, EIDRTOALTID_PARTYID, EIDRTOALTID_PASSWORD, REGISTRY_KEY, requestPagesize, IDList
+    global EIDRTOALTID_LOGIN, EIDRTOALTID_PARTYID, EIDRTOALTID_PASSWORD, REGISTRY_KEY, requestPagesize, IDList,QueryPageOffset
     global alt_id_type,alt_id_domain
  
     
     SDK_VERSION = '2.7.1'
     REGISTRY_KEY = 'resolve'
-    requestPagesize = 100
     IDList = []
 
     VALID_ID_TYPES = [
@@ -792,7 +791,7 @@ def main():
     parser.add_argument('--version', action='store_true', help=get_help_message('version'))
     parser.add_argument('-c', '--config', required=False, help=get_help_message('config'))
     parser.add_argument('--showconfig', action='store_true', help=get_help_message('showconfig'))
-    parser.add_argument('-p', type=int, default=100, dest="pagesize", help=get_help_message('pagesize'))
+    parser.add_argument('-p', type=int, default=10, dest="pagesize", help=get_help_message('pagesize'))
     #store true merely means True or False just like a boolean flag (not sure if should be include4d on own)
     parser.add_argument('-id', '--eidr_id', type=str, help=get_help_message('eidr_id'))
     parser.add_argument('-o', '--output', required=False, help=get_help_message('output'))
@@ -957,7 +956,7 @@ def main():
                 sys.exit(1)
 
     else:
-        # No ID or input file provided, construct and run a query
+    # No ID or input file provided, construct and run a query
         try:
             if args.type or args.domain:
                 # Construct the query based on provided arguments
@@ -976,33 +975,34 @@ def main():
                 if query_results:
                     # Format the query results into a list of strings
                     formatted_ids = format_query_results(query_results, verbose=verbose)
-                    output_data = process_eidr_ids(
-                formatted_ids, 
-                verbose=args.verbose, 
-                alt_id_type=args.type, 
-                alt_id_domain=args.domain,
-                output_file=args.output
-            )
-                    # Pass alt_id_domain if it was provided
-                    if args.domain:
-                        # Here we can directly process the results, filtering them by domain if necessary
-                        formatted_ids = format_query_results(query_results,verbose=verbose)
-                    output_data = process_eidr_ids(
-                formatted_ids, 
-                verbose=args.verbose, 
-                alt_id_type=args.type, 
-                alt_id_domain=args.domain,
-                output_file=args.output
-            )
 
-                    # Write the formatted results to the output file or print to the console
+                    if args.type:
+                        # Process the results for type filtering
+                        output_data = process_eidr_ids(
+                            formatted_ids,
+                            verbose=args.verbose,
+                            alt_id_type=args.type,
+                            alt_id_domain=None,  # No domain filtering
+                            output_file=args.output
+                        )
+                    elif args.domain:
+                        # Process the results for domain filtering
+                        output_data = process_eidr_ids(
+                            formatted_ids,
+                            verbose=args.verbose,
+                            alt_id_type=None,  # No type filtering
+                            alt_id_domain=args.domain,
+                            output_file=args.output
+                        )
+
+                    # Write the results to the output file or print to the console
                     if args.output:
                         with open(args.output, "w") as file:
-                            file.write("\n".join(formatted_ids))
+                            file.write("\n".join(output_data))  # Write processed data
                         if verbose:
                             print(f"Results written to {args.output}")
                     else:
-                        print("\n".join(formatted_ids))
+                        print("\n".join(output_data))
                 else:
                     print("No results found from the query API.")
                     sys.exit(1)
@@ -1011,6 +1011,8 @@ def main():
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
+
+
 
     # If no output file is provided, print results to the console
     if args.output is None:
