@@ -307,7 +307,7 @@ def run_query_api(query='', verbose=False):
     Executes a query against the EIDR API and returns results.
     """
     global  requestPagesize,debug
-    QueryPageOffset = 1
+    QueryPageOffset = 100
 
 
 
@@ -791,7 +791,7 @@ def main():
     parser.add_argument('--version', action='store_true', help=get_help_message('version'))
     parser.add_argument('-c', '--config', required=False, help=get_help_message('config'))
     parser.add_argument('--showconfig', action='store_true', help=get_help_message('showconfig'))
-    parser.add_argument('-p', type=int, default=10, dest="pagesize", help=get_help_message('pagesize'))
+    parser.add_argument('-p', type=int, default=100, dest="pagesize", help=get_help_message('pagesize'))
     #store true merely means True or False just like a boolean flag (not sure if should be include4d on own)
     parser.add_argument('-id', '--eidr_id', type=str, help=get_help_message('eidr_id'))
     parser.add_argument('-o', '--output', required=False, help=get_help_message('output'))
@@ -912,23 +912,15 @@ def main():
 
  # Inside main function, when processing EIDR IDs from the file:
     if args.input:
-        # Read and process EIDR IDs from file
+        # Read EIDR IDs from file
         try:
             with open(args.input, 'r', encoding='utf-8') as f:
                 eidr_ids = f.read().splitlines()
             if verbose:
                 print(f"Loaded {len(eidr_ids)} EIDR IDs from input file.")
-            output_data = process_eidr_ids(
-                eidr_ids, 
-                verbose=args.verbose, 
-                alt_id_type=args.type, 
-                alt_id_domain=args.domain,
-                output_file=args.output
-            )
         except Exception as e:
             print(f"Error reading input file: {e}")
             sys.exit(1)
-
 
     elif args.eidr_id:
         # Process single EIDR ID
@@ -941,25 +933,14 @@ def main():
             print(f"Invalid EIDR ID: {eidr_id}")
             sys.exit(1)
         print("Running process, please wait")
-        eidr_ids = []
-        eidr_ids.append(eidr_id)
-        output_data = process_eidr_ids(
-                eidr_ids, 
-                verbose=args.verbose, 
-                alt_id_type=args.type, 
-                alt_id_domain=args.domain,
-                output_file=args.output
-            )
-     
-        if output_data==None:
-                print(f"No alternate IDs found for EIDR ID {eidr_id}")
-                sys.exit(1)
+        eidr_ids = [eidr_id]  # Add single ID to list
 
     else:
-    # No ID or input file provided, construct and run a query
+        # No input file or ID, construct and run a query
         try:
             if args.type or args.domain:
                 # Construct the query based on provided arguments
+                query = None
                 if args.type:
                     query = DefaultQuery.replace("TYPE", args.type)
                 elif args.domain:
@@ -971,38 +952,9 @@ def main():
 
                 # Run the query and get the results
                 query_results = run_query_api(query, verbose=verbose)
-                print("Running query, please wait")
                 if query_results:
                     # Format the query results into a list of strings
-                    formatted_ids = format_query_results(query_results, verbose=verbose)
-
-                    if args.type:
-                        # Process the results for type filtering
-                        output_data = process_eidr_ids(
-                            formatted_ids,
-                            verbose=args.verbose,
-                            alt_id_type=args.type,
-                            alt_id_domain=None,  # No domain filtering
-                            output_file=args.output
-                        )
-                    elif args.domain:
-                        # Process the results for domain filtering
-                        output_data = process_eidr_ids(
-                            formatted_ids,
-                            verbose=args.verbose,
-                            alt_id_type=None,  # No type filtering
-                            alt_id_domain=args.domain,
-                            output_file=args.output
-                        )
-
-                    # Write the results to the output file or print to the console
-                    if args.output:
-                        with open(args.output, "w") as file:
-                            file.write("\n".join(output_data))  # Write processed data
-                        if verbose:
-                            print(f"Results written to {args.output}")
-                    else:
-                        print("\n".join(output_data))
+                    eidr_ids = format_query_results(query_results, verbose=verbose)
                 else:
                     print("No results found from the query API.")
                     sys.exit(1)
@@ -1012,17 +964,28 @@ def main():
             print(f"Error: {e}")
             sys.exit(1)
 
+    # Process EIDR IDs
+    if eidr_ids:
+        output_data = process_eidr_ids(
+            eidr_ids,
+            verbose=args.verbose,
+            alt_id_type=args.type,
+            alt_id_domain=args.domain,
+            output_file=args.output
+        )
 
+        if output_data is None:
+            print(f"No alternate IDs found for EIDR IDs.")
+            sys.exit(1)
 
-    # If no output file is provided, print results to the console
-    if args.output is None:
-    # If output is None, print the output to the console
-        for data in output_data:
-            print("".join(data))  # Join list items into a single string
+    # Output results
+    if args.output:
+        with open(args.output, "w") as file:
+            file.write("\n".join(output_data))  # Write processed data
+        if verbose:
+            print(f"Results written to {args.output}")
     else:
-    # Otherwise, write output to the specified file
-        write_output(args.output, output_data)
+        print("\n".join(output_data))
 
-    
 if __name__ == "__main__":
     main()
