@@ -17,7 +17,6 @@ import urllib.request
 import re
 
 global registryToUse
-global requestPagesize
 global debug
 global file
 global showCount
@@ -41,8 +40,7 @@ API_URL = 'https://{REGISTRY_KEY}.eidr.org/EIDR/'
 
 verbose = False                     # If TRUE, send progress messages to the console
 debug = False                       # If TRUE, send diagnostic data to the console
-showCount = True                    # If TRUE, show show counts of records processed / errors while running
-requestPagesize = 1              # Number of records to retrieve per round                # Page offset for repeated query rounds
+showCount = True                    # If TRUE, show show counts of records processed / errors while running               # Number of records to retrieve per round                # Page offset for repeated query rounds
 opLog = 'EIDRToAlt.oplog'            # Operation log filename.   Set to '' to suppress
 maxErrors = 0                       # If non-zero, abort after this many errors
 maxCount = 0  
@@ -304,12 +302,11 @@ def fetch_xml(eidr_id, alt_id_type):
 
 def run_query_api(query='', verbose=False):
     """
-    Executes a query against the EIDR API and returns results.
+    Executes a query against the EIDR API and returns all results from paginated queries.
     """
-    global  requestPagesize,debug
-    QueryPageOffset = 100
-
-
+    global requestPagesize, debug
+    QueryPageOffset = 0  # Start from the first page
+    all_results = []  # To collect all results
 
     url = f"https://{REGISTRY_KEY}.eidr.org/EIDR/query?type=id"  # Define the URL
 
@@ -322,6 +319,7 @@ def run_query_api(query='', verbose=False):
               '  </Query>\n' \
               '</Operation>\n' \
               '</Request>'
+
     try:
         if query == '':
             return None
@@ -341,21 +339,30 @@ def run_query_api(query='', verbose=False):
             'Accept': 'text/xml'
         }
         
-        body = bytes(req_xml, 'utf-8')
-        r = requests.post(url, headers=hdr, data=body, verify=certifi.where())
+        while True:  # Loop through pages until all results are fetched
+            body = bytes(req_xml, 'utf-8')
+            r = requests.post(url, headers=hdr, data=body, verify=certifi.where())
 
-        if r.status_code != 200:
-            print(f"Unexpected response: {r.status_code}")
-            return None
+            if r.status_code != 200:
+                print(f"Unexpected response: {r.status_code}")
+                return None
 
-        QueryPageOffset += 1  # Advance page offset for next round
+            # Add the results from this page to the all_results list
+            all_results.append(r.text)
 
-        return r.text  # Return the response body to the caller
+            # Check if there is a next page, and if not, break the loop
+            if "<NextPage>" not in r.text:
+                break
+
+            QueryPageOffset += 1  # Advance page offset for the next round
+
+        return all_results  # Return all fetched results
 
     except Exception as e:
         if debug:
             print(f'ERR! {e}')
         raise
+
 
 
 #This processes a single ID
@@ -766,7 +773,7 @@ def get_help_message(keyword):
 def main():
     global EIDRTOALTID_LOGIN, EIDRTOALTID_PARTYID, EIDRTOALTID_PASSWORD, REGISTRY_KEY, requestPagesize, IDList,QueryPageOffset
     global alt_id_type,alt_id_domain
- 
+    requestPagesize = 30
     
     SDK_VERSION = '2.7.1'
     REGISTRY_KEY = 'resolve'
@@ -791,7 +798,8 @@ def main():
     parser.add_argument('--version', action='store_true', help=get_help_message('version'))
     parser.add_argument('-c', '--config', required=False, help=get_help_message('config'))
     parser.add_argument('--showconfig', action='store_true', help=get_help_message('showconfig'))
-    parser.add_argument('-p', type=int, default=100, dest="pagesize", help=get_help_message('pagesize'))
+    parser.add_argument('-p', type=int, default=requestPagesize, dest="pagesize", help=get_help_message('pagesize'))
+
     #store true merely means True or False just like a boolean flag (not sure if should be include4d on own)
     parser.add_argument('-id', '--eidr_id', type=str, help=get_help_message('eidr_id'))
     parser.add_argument('-o', '--output', required=False, help=get_help_message('output'))
@@ -946,20 +954,36 @@ def main():
                 elif args.domain:
                     query = DomainQuery.replace("DOMAIN", args.domain)
 
-                if verbose:
+                if args.verbose:
                     print(f"Constructed query: {query}")
                     print(f"Running query with parameters: {query}")
 
-                # Run the query and get the results
-                query_results = run_query_api(query, verbose=verbose)
+                # Run the query and get all results
+                query_results = run_query_api(query, verbose=args.verbose)
                 if query_results:
+                    # Flatten the list of results from all pages
+                    all_query_results = "\n".join(query_results)
+
                     # Format the query results into a list of strings
-                    eidr_ids = format_query_results(query_results, verbose=verbose)
+                    eidr_ids = format_query_results(all_query_results, verbose=args.verbose)
+
+                    # Process the query results (filtering by type or domain if needed)
+                    processed_results = process_query_results(
+                        all_query_results,  # Using all results from all pages
+                        verbose=args.verbose,
+                        alt_id_type=args.type,  # From command line argument
+                        alt_id_domain=args.domain,  # From command line argument
+                        output_file=args.output  # From command line argument
+                    )
+
+                    if args.verbose:
+                        print(f"Total processed results: {len(processed_results)}")
                 else:
                     print("No results found from the query API.")
                     sys.exit(1)
             else:
                 raise ValueError("No EIDR ID, input file, type, or domain provided. Cannot proceed.")
+
         except Exception as e:
             print(f"Error: {e}")
             sys.exit(1)
