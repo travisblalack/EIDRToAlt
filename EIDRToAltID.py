@@ -992,17 +992,8 @@ def main():
                     # Format the query results into a list of strings
                     eidr_ids = format_query_results(all_query_results, verbose=args.verbose)
 
-                    # Process the query results (filtering by type or domain if needed)
-                    processed_results = process_query_results(
-                        all_query_results,  # Using all results from all pages
-                        verbose=args.verbose,
-                        alt_id_type=args.type,  # From command line argument
-                        alt_id_domain=args.domain,  # From command line argument
-                        output_file=args.output  # From command line argument
-                    )
-
-                    if args.verbose:
-                        print(f"Total processed results: {len(processed_results)}")
+        
+    
                 else:
                     print("No results found from the query API.")
                     sys.exit(1)
