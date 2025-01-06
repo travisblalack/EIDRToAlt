@@ -644,54 +644,79 @@ def filter_by_domain(xml_record, domain):
 
 def process_query_results(query_results, verbose=False, alt_id_type=None, alt_id_domain=None, output_file=None):
     """
-    Processes query results and formats them into a list of strings, similar to process_eidr_ids.
-    
+    Processes query results and formats them into a list of strings.
+
     Parameters:
     query_results (str): Raw XML query result as a string.
     verbose (bool): Enables verbose logging of processing steps.
     alt_id_type (str, optional): The type to filter alternate IDs by.
     alt_id_domain (str, optional): The domain to filter alternate IDs by.
     output_file (str, optional): Path to the output file.
-    
+
     Returns:
     list of str: Collected data for all valid query results, formatted as strings.
     """
-    # Ensure only one of alt_id_type or alt_id_domain is provided
     if alt_id_type and alt_id_domain:
         raise ValueError("Cannot specify both type and domain for a query. Please choose only one.")
-    
-    # Extract the relevant EIDR ID from the query results (this is for illustration, adapt to your actual XML structure)
-    xml_record = fetch_xml(query_results)  # Assume this function extracts XML to a dictionary structure
-    
-    # Call process_alternate_ids to handle the formatting of the IDs
-    processed_data = process_alternate_ids(xml_record, output_file, verbose)
 
-    # Now filter by type or domain if applicable
-    all_output_data = []
-    for alt_id in processed_data:
-        # Filter based on the type if specified
-        if alt_id_type and alt_id_type not in alt_id:
+    cleaned_ids = format_query_results(query_results, verbose)
+    total_count = 0  # Initialize a counter for the total processed records
+    processed_data = []  # Store the processed strings for returning
+
+    for record_id in cleaned_ids:
+        xml_record = None
+        if alt_id_type:
             if verbose:
-                print(f"Skipping ID {alt_id} due to type mismatch.")
-            continue
-        
-        # Filter based on the domain if specified
-        if alt_id_domain and alt_id_domain not in alt_id:
+                print(f"Processing EIDR ID: {record_id} with type: {alt_id_type}")
+            xml_record = fetch_xml(record_id, alt_id_type)
+            if xml_record:
+                xml_record = filter_by_type(xml_record, alt_id_type)
+        elif alt_id_domain:
             if verbose:
-                print(f"Skipping ID {alt_id} due to domain mismatch.")
-            continue
-        
-        all_output_data.append(alt_id)
+                print(f"Processing EIDR ID: {record_id} with domain: {alt_id_domain}")
+            xml_record = fetch_xml(record_id, "Proprietary")
+            if xml_record:
+                xml_record = filter_by_domain(xml_record, alt_id_domain)
 
-        if verbose:
-            print(f"Processed alternate ID: {alt_id}")
-        
-        # Write the result to the output file if specified
-        if output_file:
-            with open(output_file, "a") as f:
-                f.write(alt_id + "\n")
+        if xml_record:
+            count = 0  # Counter for the current record
+            if output_file:
+                with open(output_file, 'a') as file:
+                    for alt_id in xml_record.get('AlternateIDs', []):
+                        alt_type = alt_id.get('type', '') or ''
+                        alt_value = alt_id.get('value', '') or ''
+                        domain = alt_id.get('domain', '') or ''
+                        alt_relation = alt_id.get('relation', '') or ''
 
-    return all_output_data
+                        if alt_value.strip():
+                            string_format = f"{record_id}\t{alt_type}\t{alt_value}\t{domain}\t{alt_relation}"
+                            file.write(string_format + '\n')
+                            processed_data.append(string_format)
+                            count += 1
+                            if verbose:
+                                print(string_format)
+            else:
+                for alt_id in xml_record.get('AlternateIDs', []):
+                    alt_type = alt_id.get('type', '') or ''
+                    alt_value = alt_id.get('value', '') or ''
+                    domain = alt_id.get('domain', '') or ''
+                    alt_relation = alt_id.get('relation', '') or ''
+
+                    if alt_value.strip():
+                        string_format = f"{record_id}\t{alt_type}\t{alt_value}\t{domain}\t{alt_relation}"
+                        processed_data.append(string_format)
+                        count += 1
+                        if verbose:
+                            print(string_format)
+
+            total_count += count
+            if verbose:
+                print(f"Processed {total_count} records for EIDR ID: {record_id}")
+
+    if verbose:
+        print(f"Total Records Processed: {total_count}")
+
+    return processed_data
 
 
 def format_query_results(query_results, verbose=False):
