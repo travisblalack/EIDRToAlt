@@ -15,6 +15,8 @@ from xml.dom import minidom
 import certifi
 import urllib.request
 import re
+import time
+import datetime
 
 global registryToUse
 global debug
@@ -302,7 +304,8 @@ def fetch_xml(eidr_id, alt_id_type):
 
 def run_query_api(query='', verbose=False):
     """
-    Executes a query against the EIDR API and returns all results from paginated queries.
+    Executes a query against the EIDR API, returns all results from paginated queries,
+    and logs processing time with timestamps for each record.
     """
     global requestPagesize, debug
     QueryPageOffset = 0  # Start from the first page
@@ -338,14 +341,55 @@ def run_query_api(query='', verbose=False):
             'Authorization': authStr,
             'Accept': 'text/xml'
         }
-        
+
+        total_records = 0
+        total_time = 0
+
         while True:  # Loop through pages until all results are fetched
             body = bytes(req_xml, 'utf-8')
+
+            # Start timing
+            page_start_time = time.time()
             r = requests.post(url, headers=hdr, data=body, verify=certifi.where())
+            page_end_time = time.time()
 
             if r.status_code != 200:
                 print(f"Unexpected response: {r.status_code}")
                 return None
+
+            # Parse the XML response
+            root = ET.fromstring(r.text)
+
+            # Extract records (assuming individual records are contained in <Record> elements)
+            records = root.findall(".//{http://www.eidr.org/schema}Record")
+
+            # Calculate average time per record on this page
+            record_count = len(records)
+            page_time = page_end_time - page_start_time
+            record_processing_time = page_time / record_count if record_count > 0 else 0
+            current_time = page_start_time  # Start at the beginning of page processing
+
+            # Process each record with dynamic timestamp
+            for record in records:
+                current_time += record_processing_time  # Increment time for each record
+                timestamp = datetime.datetime.fromtimestamp(current_time).strftime("%H:%M:%S")
+
+                # Extract details for the record (update these tags based on your XML schema)
+                record_id = record.find(".//{http://www.eidr.org/schema}ID").text
+                record_domain = record.find(".//{http://www.eidr.org/schema}Domain").text if record.find(".//{http://www.eidr.org/schema}Domain") else "N/A"
+
+                # Log the processing details with timestamp
+                print(f"[{timestamp}] Processing EIDR ID: {record_id} with domain: {record_domain}")
+
+            total_records += record_count
+            total_time += page_time
+
+            # Log additional page-level statistics if verbose is enabled
+            if verbose:
+                print(f"Records Found on Page: {record_count}")
+                print(f"Time for this page: {page_time:.2f} seconds")
+                if record_count > 0:
+                    print(f"Average time per record: {record_processing_time:.4f} seconds\n")
 
             # Add the results from this page to the all_results list
             all_results.append(r.text)
@@ -356,13 +400,20 @@ def run_query_api(query='', verbose=False):
 
             QueryPageOffset += 1  # Advance page offset for the next round
 
+        # Final statistics
+        if total_records > 0:
+            print(f"Total Records Processed: {total_records}")
+            print(f"Total Time: {total_time:.2f} seconds")
+            print(f"Overall Average Time per Record: {total_time / total_records:.4f} seconds")
+        else:
+            print("No records found.")
+
         return all_results  # Return all fetched results
 
     except Exception as e:
         if debug:
             print(f'ERR! {e}')
         raise
-
 
 
 #This processes a single ID
@@ -524,7 +575,7 @@ def process_eidr_ids(eidr_ids, verbose, alt_id_type=None, alt_id_domain=None, ou
     list of dict: Collected data for all valid EIDR IDs.
     """
     all_output_data = []
-
+    current_time = datetime.datetime.now().strftime("%H:%M:%S")
     for eidr_id in eidr_ids:
         # Skip blank lines or lines with only whitespace
         if not eidr_id.strip():
@@ -535,23 +586,20 @@ def process_eidr_ids(eidr_ids, verbose, alt_id_type=None, alt_id_domain=None, ou
         if len(eidr_id) != 34 or not eidr_id.startswith("10.5240/"):
             print(f"Invalid EIDR ID: {eidr_id}")
             continue
+            
+        current_time = datetime.datetime.now().strftime("%H:%M:%S")
 
         if alt_id_type:
-            
             if verbose:
-                print(f"Processing EIDR ID: {eidr_id} with type: {alt_id_type}")
-           
+                print(f"[{current_time}] Processing EIDR ID: {eidr_id} with type: {alt_id_type}")
             xml_record = fetch_xml(eidr_id, alt_id_type)
             if xml_record:
-                # Filter the alternate IDs by the domain after fetching the XML
-               
-                xml_record = filter_by_type(xml_record,alt_id_type)
+                xml_record = filter_by_type(xml_record, alt_id_type)
         elif alt_id_domain:
             if verbose:
-                print(f"Processing EIDR ID: {eidr_id} with domain: {alt_id_domain}")
+                print(f"[{current_time}] Processing EIDR ID: {eidr_id} with domain: {alt_id_domain}")
             xml_record = fetch_xml(eidr_id, "Proprietary")
             if xml_record:
-                # Filter the alternate IDs by the domain after fetching the XML
                 xml_record = filter_by_domain(xml_record, alt_id_domain)
         else:
             sys.exit(1)
@@ -559,14 +607,14 @@ def process_eidr_ids(eidr_ids, verbose, alt_id_type=None, alt_id_domain=None, ou
         if xml_record:
             processed_data = process_alternate_ids(xml_record, output_file, verbose=verbose)
             if processed_data:
-                all_output_data.extend(processed_data)  # Add the individual formatted strings, not a list of lists
+                all_output_data.extend(processed_data)
             else:
                 print(f"No alternate IDs found for EIDR ID {eidr_id}")
         else:
             print(f"No valid XML record found for EIDR ID {eidr_id}")
 
-    # Return the list of processed strings (not lists)
     return all_output_data
+
 
 
 def write_output(output_file, data):
@@ -662,7 +710,7 @@ def process_query_results(query_results, verbose=False, alt_id_type=None, alt_id
     cleaned_ids = format_query_results(query_results, verbose)
     total_count = 0  # Initialize a counter for the total processed records
     processed_data = []  # Store the processed strings for returning
-
+    
     for record_id in cleaned_ids:
         xml_record = None
         if alt_id_type:
